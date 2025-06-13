@@ -301,12 +301,16 @@ Public Class Form1
 
     End Sub
     Private Sub btCancelar_Click(sender As Object, e As EventArgs) Handles btCancelar.Click
+
         Task.Run(Sub()
                      If processoYtDlp IsNot Nothing Then
                          Try
                              If Not processoYtDlp.HasExited Then
-                                 processoYtDlp.Kill()
+                                 processoYtDlp.Kill(entireProcessTree:=True)
                                  processoYtDlp.WaitForExit()
+                                 progressBarDownload.Invoke(Sub()
+                                                                progressBarDownload.Value = 0
+                                                            End Sub)
                                  Me.Invoke(Sub()
                                                txtLog.AppendText(Environment.NewLine & "⛔ Download interrompido pelo usuário." & Environment.NewLine)
                                                btCancelar.Enabled = False
