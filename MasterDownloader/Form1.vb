@@ -6,10 +6,10 @@ Imports System.Threading.Tasks
 
 Public Class Form1
 
-    Private downloadFilePath As String = Application.StartupPath & "\download.txt" ' pode ser caminho absoluto se preferir
-    Private batFilePath As String = Application.StartupPath & "\run.bat" ' pode ser caminho absoluto se necessário
+    Private downloadFilePath As String = Application.StartupPath & "\download.txt"
+    Private batFilePath As String = Application.StartupPath & "\run.bat"
 
-    Private Async Sub btnAdicionar_Click(sender As Object, e As EventArgs) Handles btnAdicionar.Click
+    Private Async Sub BtnAdicionar_Click(sender As Object, e As EventArgs) Handles btnAdicionar.Click
         Dim link As String = txtUrl.Text.Trim()
         If link <> "" Then
             File.AppendAllText(downloadFilePath, link & Environment.NewLine)
@@ -37,16 +37,15 @@ Public Class Form1
 
     End Sub
 
-
     Public Async Function ExecutarProcessoAsync(ByVal logTextBox As TextBox, ByVal progressBar As ProgressBar) As Task(Of Boolean)
         Dim tcs As New TaskCompletionSource(Of Boolean)()
         Dim hasErrors As Boolean = False
 
         progressBar.Invoke(Sub() progressBar.Value = 0)
 
-        Dim psi As New ProcessStartInfo()
-
-        psi.FileName = IO.Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
+        Dim psi As New ProcessStartInfo With {
+            .FileName = IO.Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
+        }
 
         Dim argumentos As New System.Text.StringBuilder()
         argumentos.Append("--batch-file ""download.txt"" ")
@@ -70,9 +69,10 @@ Public Class Form1
         psi.RedirectStandardError = True
         psi.CreateNoWindow = True
 
-        Dim proc As New Process()
-        proc.StartInfo = psi
-        proc.EnableRaisingEvents = True
+        Dim proc As New Process With {
+            .StartInfo = psi,
+            .EnableRaisingEvents = True
+        }
 
         ' Handler para a saída padrão (output)
         AddHandler proc.OutputDataReceived, Sub(s, ev)
@@ -121,7 +121,6 @@ Public Class Form1
 
         Return Await tcs.Task
     End Function
-
     Private Sub LimparArquivoDownload()
         Dim caminho As String = Path.Combine(Application.StartupPath, "download.txt")
         Try
@@ -132,31 +131,6 @@ Public Class Form1
             MessageBox.Show("Erro ao limpar o arquivo: " & ex.Message, "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
     End Sub
-
-    Private Async Function ValidarLink(url As String) As Task(Of Boolean)
-        Try
-
-            Dim psi As New ProcessStartInfo With {
-        .FileName = "app\yt-dlp.exe",
-        .Arguments = $"--simulate {url}",
-        .UseShellExecute = False,
-        .RedirectStandardError = True,
-        .RedirectStandardOutput = True,
-        .CreateNoWindow = True
-    }
-
-        Dim output As String = ""
-        Using proc As Process = Process.Start(psi)
-            output = Await proc.StandardError.ReadToEndAsync()
-            proc.WaitForExit()
-        End Using
-
-            Return Not output.Contains("ERROR:")
-
-        Catch ex As Exception
-            txtLog.AppendText(Environment.NewLine & ex.Message & Environment.NewLine)
-        End Try
-    End Function
 
     Private Async Function ContarVideosNaPlaylist(url As String) As Task(Of Integer)
         Dim psi As New ProcessStartInfo With {
@@ -178,7 +152,6 @@ Public Class Form1
         Return count
     End Function
 
-
     Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         If File.Exists(downloadFilePath) Then
             Dim links = File.ReadAllLines(downloadFilePath)
@@ -188,10 +161,10 @@ Public Class Form1
         Me.Height = 315
     End Sub
 
-    Private Sub btLimparLista_Click(sender As Object, e As EventArgs) Handles btLimparLista.Click
+    Private Sub BtLimparLista_Click(sender As Object, e As EventArgs) Handles btLimparLista.Click
         LimparArquivoDownload()
     End Sub
-    Private Async Sub btnExecutar_Click(sender As Object, e As EventArgs) Handles btnExecutar.Click
+    Private Async Sub BtnExecutar_Click(sender As Object, e As EventArgs) Handles btnExecutar.Click
         txtLog.Clear()
         btnExecutar.Enabled = False
         progressBarDownload.Value = 0 ' Garante que a barra de progresso esteja zerada ao iniciar
@@ -218,7 +191,7 @@ Public Class Form1
             progressBarDownload.Value = 0 ' Reseta a barra de progresso ao finalizar
         End Try
     End Sub
-    Private Sub btLog_Click(sender As Object, e As EventArgs) Handles btLog.Click
+    Private Sub BtLog_Click(sender As Object, e As EventArgs) Handles btLog.Click
         If txtLog.Visible Then
             btLog.Text = "Exibir Log"
             txtLog.Visible = False
