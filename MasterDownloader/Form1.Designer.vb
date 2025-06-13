@@ -129,8 +129,8 @@ Partial Class Form1
         ' StatusLabel
         ' 
         StatusLabel.Name = "StatusLabel"
-        StatusLabel.Size = New Size(39, 17)
-        StatusLabel.Text = "Status"
+        StatusLabel.Size = New Size(120, 17)
+        StatusLabel.Text = "Status: Aguardando..."
         ' 
         ' btLog
         ' 
