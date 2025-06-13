@@ -15,6 +15,7 @@ Partial Class Form1
         progressBarDownload = New ProgressBar()
         CheckBoxAudio = New CheckBox()
         StatusStrip1 = New StatusStrip()
+        StatusLabel = New ToolStripStatusLabel()
         btLog = New Button()
         chkLegendas = New CheckBox()
         MenuStrip1 = New MenuStrip()
@@ -22,6 +23,7 @@ Partial Class Form1
         ImportarCookiesPrivadosToolStripMenuItem = New ToolStripMenuItem()
         AlterarPastaDestinoToolStripMenuItem = New ToolStripMenuItem()
         btCancelar = New Button()
+        StatusStrip1.SuspendLayout()
         MenuStrip1.SuspendLayout()
         SuspendLayout()
         ' 
@@ -115,11 +117,18 @@ Partial Class Form1
         ' 
         ' StatusStrip1
         ' 
+        StatusStrip1.Items.AddRange(New ToolStripItem() {StatusLabel})
         StatusStrip1.Location = New Point(0, 438)
         StatusStrip1.Name = "StatusStrip1"
         StatusStrip1.Size = New Size(516, 22)
         StatusStrip1.TabIndex = 16
         StatusStrip1.Text = "StatusStrip1"
+        ' 
+        ' StatusLabel
+        ' 
+        StatusLabel.Name = "StatusLabel"
+        StatusLabel.Size = New Size(39, 17)
+        StatusLabel.Text = "Status"
         ' 
         ' btLog
         ' 
@@ -136,7 +145,7 @@ Partial Class Form1
         chkLegendas.AutoSize = True
         chkLegendas.Location = New Point(12, 202)
         chkLegendas.Name = "chkLegendas"
-        chkLegendas.Size = New Size(108, 19)
+        chkLegendas.Size = New Size(107, 19)
         chkLegendas.TabIndex = 18
         chkLegendas.Text = "Baixar legendas"
         chkLegendas.UseVisualStyleBackColor = True
@@ -205,6 +214,8 @@ Partial Class Form1
         Name = "Form1"
         StartPosition = FormStartPosition.CenterScreen
         Text = "MasterDownloader"
+        StatusStrip1.ResumeLayout(False)
+        StatusStrip1.PerformLayout()
         MenuStrip1.ResumeLayout(False)
         MenuStrip1.PerformLayout()
         ResumeLayout(False)
@@ -227,4 +238,5 @@ Partial Class Form1
     Friend WithEvents ImportarCookiesPrivadosToolStripMenuItem As ToolStripMenuItem
     Friend WithEvents AlterarPastaDestinoToolStripMenuItem As ToolStripMenuItem
     Private WithEvents btCancelar As Button
+    Friend WithEvents StatusLabel As ToolStripStatusLabel
 End Class

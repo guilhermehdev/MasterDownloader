@@ -1,5 +1,6 @@
 ﻿Imports System.Diagnostics
 Imports System.IO
+Imports System.Security.Policy
 Imports System.Text.RegularExpressions
 Imports System.Threading.Tasks
 
@@ -8,13 +9,32 @@ Public Class Form1
     Private downloadFilePath As String = Application.StartupPath & "\download.txt" ' pode ser caminho absoluto se preferir
     Private batFilePath As String = Application.StartupPath & "\run.bat" ' pode ser caminho absoluto se necessário
 
-    Private Sub btnAdicionar_Click(sender As Object, e As EventArgs) Handles btnAdicionar.Click
+    Private Async Sub btnAdicionar_Click(sender As Object, e As EventArgs) Handles btnAdicionar.Click
         Dim link As String = txtUrl.Text.Trim()
         If link <> "" Then
             File.AppendAllText(downloadFilePath, link & Environment.NewLine)
             lstLinks.Items.Add(link)
             txtUrl.Clear()
         End If
+
+        If Not File.Exists(downloadFilePath) Then
+            MessageBox.Show("download.txt não encontrado.")
+            Return
+        End If
+
+        Dim links = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
+        If links.Count = 0 Then
+            txtLog.AppendText("⚠️ Nenhum link encontrado no arquivo." & Environment.NewLine)
+            Return
+        End If
+
+        Try
+            Dim total As Integer = Await ContarVideosNaPlaylist(link)
+            txtLog.AppendText($"📺 Playlist contém {total} vídeos." & Environment.NewLine)
+        Catch ex As Exception
+            txtLog.AppendText("❌ Falha ao contar vídeos: " & ex.Message & Environment.NewLine)
+        End Try
+
     End Sub
 
 
@@ -114,7 +134,9 @@ Public Class Form1
     End Sub
 
     Private Async Function ValidarLink(url As String) As Task(Of Boolean)
-        Dim psi As New ProcessStartInfo With {
+        Try
+
+            Dim psi As New ProcessStartInfo With {
         .FileName = "app\yt-dlp.exe",
         .Arguments = $"--simulate {url}",
         .UseShellExecute = False,
@@ -129,7 +151,11 @@ Public Class Form1
             proc.WaitForExit()
         End Using
 
-        Return Not output.Contains("ERROR:")
+            Return Not output.Contains("ERROR:")
+
+        Catch ex As Exception
+            txtLog.AppendText(Environment.NewLine & ex.Message & Environment.NewLine)
+        End Try
     End Function
 
     Private Async Function ContarVideosNaPlaylist(url As String) As Task(Of Integer)
@@ -207,6 +233,5 @@ Public Class Form1
         End If
 
     End Sub
-
 
 End Class
