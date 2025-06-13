@@ -6,6 +6,7 @@ Partial Class Form1
 
     <System.Diagnostics.DebuggerStepThrough()>
     Private Sub InitializeComponent()
+        components = New ComponentModel.Container()
         txtUrl = New TextBox()
         btnAdicionar = New Button()
         btnExecutar = New Button()
@@ -23,6 +24,7 @@ Partial Class Form1
         ImportarCookiesPrivadosToolStripMenuItem = New ToolStripMenuItem()
         AlterarPastaDestinoToolStripMenuItem = New ToolStripMenuItem()
         btCancelar = New Button()
+        timerFakeProgress = New Timer(components)
         StatusStrip1.SuspendLayout()
         MenuStrip1.SuspendLayout()
         SuspendLayout()
@@ -145,7 +147,7 @@ Partial Class Form1
         chkLegendas.AutoSize = True
         chkLegendas.Location = New Point(12, 202)
         chkLegendas.Name = "chkLegendas"
-        chkLegendas.Size = New Size(107, 19)
+        chkLegendas.Size = New Size(108, 19)
         chkLegendas.TabIndex = 18
         chkLegendas.Text = "Baixar legendas"
         chkLegendas.UseVisualStyleBackColor = True
@@ -182,6 +184,7 @@ Partial Class Form1
         ' 
         btCancelar.BackColor = Color.DarkOrange
         btCancelar.Cursor = Cursors.Hand
+        btCancelar.Enabled = False
         btCancelar.FlatAppearance.BorderSize = 0
         btCancelar.FlatStyle = FlatStyle.Flat
         btCancelar.ForeColor = Color.White
@@ -191,6 +194,9 @@ Partial Class Form1
         btCancelar.TabIndex = 20
         btCancelar.Text = "Cancelar"
         btCancelar.UseVisualStyleBackColor = False
+        ' 
+        ' timerFakeProgress
+        ' 
         ' 
         ' Form1
         ' 
@@ -239,4 +245,5 @@ Partial Class Form1
     Friend WithEvents AlterarPastaDestinoToolStripMenuItem As ToolStripMenuItem
     Private WithEvents btCancelar As Button
     Friend WithEvents StatusLabel As ToolStripStatusLabel
+    Friend WithEvents timerFakeProgress As Timer
 End Class
