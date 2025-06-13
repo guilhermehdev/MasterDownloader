@@ -37,7 +37,6 @@ Public Class Form1
 
     End Sub
 
-
     Public Async Function ExecutarProcessoAsync(ByVal logTextBox As TextBox, ByVal progressBar As ProgressBar) As Task(Of Boolean)
         Dim tcs As New TaskCompletionSource(Of Boolean)()
         Dim hasErrors As Boolean = False
