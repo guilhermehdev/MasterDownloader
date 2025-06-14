@@ -5,12 +5,19 @@ Imports System.Text.RegularExpressions
 Imports System.Threading.Tasks
 
 Public Class Form1
+    Private downloadFilePath As String = Application.StartupPath & "\download.txt"
+    Private batFilePath As String = Application.StartupPath & "\run.bat"
+    Private totalLinks As Integer = 0
+    Private linksConcluidos As Integer = 0
+    Private processoYtDlp As Process = Nothing
 
-    Private downloadFilePath As String = Application.StartupPath & "\download.txt" ' pode ser caminho absoluto se preferir
-    Private batFilePath As String = Application.StartupPath & "\run.bat" ' pode ser caminho absoluto se necessário
+    Private Async Sub BtnAdicionar_Click(sender As Object, e As EventArgs) Handles btnAdicionar.Click
+        StatusLabel.Text = "Status: Adicionando link..."
+        Application.DoEvents()
 
-    Private Async Sub btnAdicionar_Click(sender As Object, e As EventArgs) Handles btnAdicionar.Click
         Dim link As String = txtUrl.Text.Trim()
+        Me.Cursor = Cursors.WaitCursor
+
         If link <> "" Then
             File.AppendAllText(downloadFilePath, link & Environment.NewLine)
             lstLinks.Items.Add(link)
@@ -30,32 +37,49 @@ Public Class Form1
 
         Try
             Dim total As Integer = Await ContarVideosNaPlaylist(link)
-            txtLog.AppendText($"📺 Playlist contém {total} vídeos." & Environment.NewLine)
+            txtLog.AppendText($"📺 Link contém {total} vídeos." & Environment.NewLine)
+            StatusLabel.Text = $"Status: {total} vídeos encontrados"
         Catch ex As Exception
+            StatusLabel.Text = "Status: Nenhum video encontrado."
             txtLog.AppendText("❌ Falha ao contar vídeos: " & ex.Message & Environment.NewLine)
         End Try
+        Me.Cursor = Cursors.Default
 
     End Sub
 
+    Private Sub AtualizarStatus(texto As String)
+        If StatusLabel.GetCurrentParent.InvokeRequired Then
+            StatusLabel.GetCurrentParent.Invoke(Sub()
+                                                    StatusLabel.Text = texto
+                                                End Sub)
+        Else
+            StatusLabel.Text = texto
+        End If
+    End Sub
+
     Public Async Function ExecutarProcessoAsync(ByVal logTextBox As TextBox, ByVal progressBar As ProgressBar) As Task(Of Boolean)
+        StatusLabel.Text = "Status: Preparando..."
+        Application.DoEvents()
+
         Dim tcs As New TaskCompletionSource(Of Boolean)()
         Dim hasErrors As Boolean = False
 
         progressBar.Invoke(Sub() progressBar.Value = 0)
 
-        Dim psi As New ProcessStartInfo()
-
-        psi.FileName = IO.Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
+        Dim psi As New ProcessStartInfo With {
+            .FileName = IO.Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
+        }
 
         Dim argumentos As New System.Text.StringBuilder()
         argumentos.Append("--batch-file ""download.txt"" ")
+        argumentos.Append("--no-warnings ")
         If CheckBoxAudio.Checked Then
             argumentos.Append("--extract-audio --audio-format mp3 ")
         End If
         If chkLegendas.Checked Then
             argumentos.Append("--write-sub --sub-langs ""pt.*"" --embed-subs ")
         End If
-        argumentos.Append("--output ""downloaded\%(title)s.%(ext)s"" ")
+        argumentos.Append($"--output ""{My.Settings.destFolder}\%(title)s.%(ext)s"" ")
         argumentos.Append("--ignore-errors ")
         argumentos.Append("--cookies ""cookies.txt"" ")
         argumentos.Append("--format ""bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best""")
@@ -69,32 +93,49 @@ Public Class Form1
         psi.RedirectStandardError = True
         psi.CreateNoWindow = True
 
-        Dim proc As New Process()
+        processoYtDlp = New Process()
+        Dim proc = processoYtDlp
         proc.StartInfo = psi
         proc.EnableRaisingEvents = True
 
         ' Handler para a saída padrão (output)
         AddHandler proc.OutputDataReceived, Sub(s, ev)
                                                 If ev.Data IsNot Nothing Then
+                                                    If ev.Data.Contains("Deleting original file") Then
+                                                        ' Ignora completamente essa linha
+                                                        Return
+                                                    End If
+
                                                     logTextBox.Invoke(Sub() logTextBox.AppendText(ev.Data & Environment.NewLine))
                                                     If ev.Data.Contains("[download] Destination:") Then
                                                         progressBar.Invoke(Sub() progressBar.Value = 0)
                                                     End If
 
+                                                    If ev.Data.Contains("[Merging formats]") OrElse ev.Data.Contains("[Merger]") Then
+                                                        linksConcluidos += 1
+                                                        AtualizarStatus("Status: Processando...")
+                                                    End If
+
                                                     ' Tenta extrair o progresso da linha de saída
                                                     Dim match As Match = Regex.Match(ev.Data, "\[download\]\s+(\d{1,3}(?:\.\d+)?)%")
                                                     If match.Success Then
+                                                        timerFakeProgress.Stop()
                                                         Dim percentText = match.Groups(1).Value.Replace(",", ".")
                                                         Dim progressVal As Integer = CInt(Math.Floor(Double.Parse(percentText, Globalization.CultureInfo.InvariantCulture)))
                                                         progressVal = Math.Min(progressVal, 100)
+
+                                                        Dim progressoGlobal = (linksConcluidos * 100) + progressVal
+
                                                         progressBar.Invoke(Sub()
-                                                                               If progressVal <= progressBar.Maximum Then
-                                                                                   progressBar.Value = progressVal
+                                                                               If progressoGlobal <= progressBar.Maximum Then
+                                                                                   progressBar.Value = progressoGlobal
                                                                                End If
                                                                            End Sub)
+                                                        AtualizarStatus("Status: Realizando download...")
                                                     End If
                                                 End If
                                             End Sub
+
 
         ' Handler para a saída de erro (error)
         AddHandler proc.ErrorDataReceived, Sub(s, ev)
@@ -106,6 +147,8 @@ Public Class Form1
 
         ' Handler para quando o processo for finalizado
         AddHandler proc.Exited, Sub(s, ev)
+                                    StatusLabel.Text = "Status: Processando..."
+                                    Application.DoEvents()
                                     tcs.TrySetResult(Not hasErrors)
                                 End Sub
 
@@ -116,46 +159,24 @@ Public Class Form1
         Catch ex As Exception
             logTextBox.AppendText("[FALHA CRÍTICA] Não foi possível iniciar o processo: " & ex.Message)
             tcs.TrySetResult(False)
+            StatusLabel.Text = "Status: Falha no processo..."
+            Application.DoEvents()
         End Try
 
         Return Await tcs.Task
-    End Function
 
+    End Function
     Private Sub LimparArquivoDownload()
         Dim caminho As String = Path.Combine(Application.StartupPath, "download.txt")
         Try
             File.WriteAllText(caminho, String.Empty)
             txtLog.AppendText(Environment.NewLine & "🧹 Arquivo download.txt limpo com sucesso!" & Environment.NewLine)
             lstLinks.Items.Clear() ' Se estiver usando ListBox para mostrar os links
+            StatusLabel.Text = "Status: OK"
         Catch ex As Exception
             MessageBox.Show("Erro ao limpar o arquivo: " & ex.Message, "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
     End Sub
-
-    Private Async Function ValidarLink(url As String) As Task(Of Boolean)
-        Try
-
-            Dim psi As New ProcessStartInfo With {
-        .FileName = "app\yt-dlp.exe",
-        .Arguments = $"--simulate {url}",
-        .UseShellExecute = False,
-        .RedirectStandardError = True,
-        .RedirectStandardOutput = True,
-        .CreateNoWindow = True
-    }
-
-        Dim output As String = ""
-        Using proc As Process = Process.Start(psi)
-            output = Await proc.StandardError.ReadToEndAsync()
-            proc.WaitForExit()
-        End Using
-
-            Return Not output.Contains("ERROR:")
-
-        Catch ex As Exception
-            txtLog.AppendText(Environment.NewLine & ex.Message & Environment.NewLine)
-        End Try
-    End Function
 
     Private Async Function ContarVideosNaPlaylist(url As String) As Task(Of Integer)
         Dim psi As New ProcessStartInfo With {
@@ -174,9 +195,15 @@ Public Class Form1
             End While
             proc.WaitForExit()
         End Using
-        Return count
-    End Function
 
+        If count = 0 Then
+            ' Se não retornou nada com --flat-playlist, é um vídeo único
+            Return 1
+        Else
+            Return count
+        End If
+
+    End Function
 
     Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         If File.Exists(downloadFilePath) Then
@@ -185,39 +212,69 @@ Public Class Form1
         End If
         progressBarDownload.Location = New Point(12, 222)
         Me.Height = 315
+        AddHandler timerFakeProgress.Tick, AddressOf timerFakeProgress_Tick
+
     End Sub
 
-    Private Sub btLimparLista_Click(sender As Object, e As EventArgs) Handles btLimparLista.Click
+    Private Sub BtLimparLista_Click(sender As Object, e As EventArgs) Handles btLimparLista.Click
         LimparArquivoDownload()
     End Sub
-    Private Async Sub btnExecutar_Click(sender As Object, e As EventArgs) Handles btnExecutar.Click
+    Private Async Sub BtnExecutar_Click(sender As Object, e As EventArgs) Handles btnExecutar.Click
         txtLog.Clear()
         btnExecutar.Enabled = False
-        progressBarDownload.Value = 0 ' Garante que a barra de progresso esteja zerada ao iniciar
+        progressBarDownload.Value = 0
+        linksConcluidos = 0
+        timerFakeProgress.Start()
+
+        If File.Exists(downloadFilePath) Then
+            totalLinks = File.ReadAllLines(downloadFilePath).Count(Function(l) Not String.IsNullOrWhiteSpace(l))
+        End If
+
+        If totalLinks = 0 Then
+            MessageBox.Show("Nenhum link válido encontrado.")
+            txtLog.AppendText(Environment.NewLine & "❌ Nenhum link válido encontrado." & Environment.NewLine)
+            Exit Sub
+        End If
+
+        progressBarDownload.Maximum = totalLinks * 100
 
         Try
+            btCancelar.Enabled = True
+
             Dim sucesso As Boolean = Await ExecutarProcessoAsync(txtLog, progressBarDownload)
 
             If sucesso Then
                 txtLog.AppendText(Environment.NewLine & "✅ Arquivos baixados com sucesso!" & Environment.NewLine)
-                Dim pastaDestino As String = IO.Path.Combine(Application.StartupPath, "downloaded")
-                If IO.Directory.Exists(pastaDestino) Then
-                    Process.Start("explorer.exe", pastaDestino)
-                Else
-                    txtLog.AppendText("⚠️ Pasta de destino 'downloaded' não encontrada." & Environment.NewLine)
-                End If
+                OpenFolder()
+                StatusLabel.Text = "Status: OK"
+                Application.DoEvents()
             Else
                 txtLog.AppendText(Environment.NewLine & "❌ O processo foi concluído com erros." & Environment.NewLine)
             End If
 
         Catch ex As Exception
             txtLog.AppendText(Environment.NewLine & $"[ERRO INESPERADO] {ex.Message}")
+            StatusLabel.Text = "Status: Falha no download..."
+            Application.DoEvents()
         Finally
             btnExecutar.Enabled = True
+            btCancelar.Enabled = False
             progressBarDownload.Value = 0 ' Reseta a barra de progresso ao finalizar
+            timerFakeProgress.Stop()
         End Try
     End Sub
-    Private Sub btLog_Click(sender As Object, e As EventArgs) Handles btLog.Click
+
+    Private Sub OpenFolder()
+        Dim pastaDestino As String = IO.Path.Combine(Application.StartupPath, My.Settings.destFolder)
+        ' Abrir a pasta se ela existir e conter arquivos
+        If IO.Directory.Exists(pastaDestino) AndAlso IO.Directory.EnumerateFiles(pastaDestino).Any() Then
+            Process.Start("explorer.exe", pastaDestino)
+        Else
+            txtLog.AppendText("⚠️ Nenhum arquivo encontrado na pasta de destino." & Environment.NewLine)
+        End If
+    End Sub
+
+    Private Sub BtLog_Click(sender As Object, e As EventArgs) Handles btLog.Click
         If txtLog.Visible Then
             btLog.Text = "Exibir Log"
             txtLog.Visible = False
@@ -232,5 +289,85 @@ Public Class Form1
         End If
 
     End Sub
+    Private Sub AlterarPastaDestinoToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles AlterarPastaDestinoToolStripMenuItem.Click
+        Dim folderBrowser As New FolderBrowserDialog With {
+            .Description = "Selecione a pasta de destino para os downloads:"
+        }
+        If folderBrowser.ShowDialog() = DialogResult.OK Then
+            My.Settings.destFolder = folderBrowser.SelectedPath
+            My.Settings.Save()
+            txtLog.AppendText($"🗂️ Pasta de destino alterada para: {My.Settings.destFolder}" & Environment.NewLine)
+        End If
 
+    End Sub
+    Private Sub btCancelar_Click(sender As Object, e As EventArgs) Handles btCancelar.Click
+
+        Task.Run(Sub()
+                     If processoYtDlp IsNot Nothing Then
+                         Try
+                             If Not processoYtDlp.HasExited Then
+                                 processoYtDlp.Kill(entireProcessTree:=True)
+                                 processoYtDlp.WaitForExit()
+                                 progressBarDownload.Invoke(Sub()
+                                                                progressBarDownload.Value = 0
+                                                            End Sub)
+                                 Me.Invoke(Sub()
+                                               txtLog.AppendText(Environment.NewLine & "⛔ Download interrompido pelo usuário." & Environment.NewLine)
+                                               btCancelar.Enabled = False
+                                               btnExecutar.Enabled = True
+                                               StatusLabel.Text = "Status: Cancelado pelo usuário."
+                                               timerFakeProgress.Stop()
+                                           End Sub)
+
+                                 Dim pastaDestino As String = Path.Combine(Application.StartupPath, My.Settings.destFolder)
+                                 If Directory.Exists(pastaDestino) AndAlso Directory.EnumerateFiles(pastaDestino).Any() Then
+                                     Process.Start("explorer.exe", pastaDestino)
+                                 Else
+                                     Me.Invoke(Sub() txtLog.AppendText("⚠️ Nenhum arquivo parcial encontrado." & Environment.NewLine))
+                                 End If
+                             End If
+                         Catch ex As Exception
+                             Me.Invoke(Sub()
+                                           txtLog.AppendText($"[ERRO ao parar o processo] {ex.Message}" & Environment.NewLine)
+                                           btCancelar.Enabled = False
+                                           btnExecutar.Enabled = True
+                                           timerFakeProgress.Stop()
+                                       End Sub)
+                         End Try
+                     Else
+                         Me.Invoke(Sub()
+                                       txtLog.AppendText("⚠️ Nenhum processo ativo para interromper." & Environment.NewLine)
+                                       btCancelar.Enabled = False
+                                       btnExecutar.Enabled = True
+                                       timerFakeProgress.Stop()
+                                   End Sub)
+                     End If
+                 End Sub)
+    End Sub
+    Private Sub ImportarCookiesPrivadosToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles ImportarCookiesPrivadosToolStripMenuItem.Click
+        Dim saveFileDialog As New OpenFileDialog With {
+            .Filter = "Arquivo de Cookies (*.txt)|*.txt",
+            .Title = "Importar cookies privados",
+            .InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            .FileName = "cookies.txt"
+        }
+        If saveFileDialog.ShowDialog() = DialogResult.OK Then
+            Dim cookiesPath As String = saveFileDialog.FileName
+            If Not String.IsNullOrEmpty(cookiesPath) Then
+                If File.Exists(cookiesPath) Then
+                    File.Delete(Path.Combine(Application.StartupPath, "cookies.txt")) ' Remove o arquivo antigo, se existir
+                End If
+                FileCopy(cookiesPath, Path.Combine(Application.StartupPath, "cookies.txt"))
+                MsgBox("Cookies privados importados com sucesso!", MsgBoxStyle.Information, "Importação de Cookies")
+                txtLog.AppendText($"🍪 Cookies privados importados com sucesso: {cookiesPath}" & Environment.NewLine)
+            End If
+        End If
+    End Sub
+    Private Sub timerFakeProgress_Tick(sender As Object, e As EventArgs) Handles timerFakeProgress.Tick
+        If progressBarDownload.Value < progressBarDownload.Maximum Then
+            progressBarDownload.Value += 1
+        Else
+            progressBarDownload.Value = 0
+        End If
+    End Sub
 End Class
