@@ -39,10 +39,9 @@ Partial Class Form1
         ' 
         ' btnAdicionar
         ' 
-        btnAdicionar.BackColor = Color.YellowGreen
+        btnAdicionar.BackColor = Color.DeepSkyBlue
         btnAdicionar.Cursor = Cursors.Hand
         btnAdicionar.FlatAppearance.BorderSize = 0
-        btnAdicionar.FlatStyle = FlatStyle.Flat
         btnAdicionar.ForeColor = Color.White
         btnAdicionar.Location = New Point(458, 30)
         btnAdicionar.Name = "btnAdicionar"
@@ -53,10 +52,10 @@ Partial Class Form1
         ' 
         ' btnExecutar
         ' 
-        btnExecutar.BackColor = Color.SteelBlue
+        btnExecutar.BackColor = Color.YellowGreen
         btnExecutar.Cursor = Cursors.Hand
-        btnExecutar.FlatAppearance.BorderSize = 0
-        btnExecutar.FlatStyle = FlatStyle.Flat
+        btnExecutar.FlatAppearance.BorderColor = Color.IndianRed
+        btnExecutar.FlatAppearance.MouseOverBackColor = Color.DodgerBlue
         btnExecutar.ForeColor = Color.White
         btnExecutar.Location = New Point(207, 187)
         btnExecutar.Name = "btnExecutar"
@@ -87,10 +86,9 @@ Partial Class Form1
         ' 
         ' btLimparLista
         ' 
-        btLimparLista.BackColor = Color.IndianRed
+        btLimparLista.BackColor = Color.Silver
         btLimparLista.Cursor = Cursors.Hand
         btLimparLista.FlatAppearance.BorderSize = 0
-        btLimparLista.FlatStyle = FlatStyle.Flat
         btLimparLista.ForeColor = Color.White
         btLimparLista.Location = New Point(413, 187)
         btLimparLista.Name = "btLimparLista"
@@ -147,7 +145,7 @@ Partial Class Form1
         chkLegendas.AutoSize = True
         chkLegendas.Location = New Point(12, 202)
         chkLegendas.Name = "chkLegendas"
-        chkLegendas.Size = New Size(108, 19)
+        chkLegendas.Size = New Size(107, 19)
         chkLegendas.TabIndex = 18
         chkLegendas.Text = "Baixar legendas"
         chkLegendas.UseVisualStyleBackColor = True
@@ -182,11 +180,10 @@ Partial Class Form1
         ' 
         ' btCancelar
         ' 
-        btCancelar.BackColor = Color.DarkOrange
+        btCancelar.BackColor = Color.OrangeRed
         btCancelar.Cursor = Cursors.Hand
         btCancelar.Enabled = False
         btCancelar.FlatAppearance.BorderSize = 0
-        btCancelar.FlatStyle = FlatStyle.Flat
         btCancelar.ForeColor = Color.White
         btCancelar.Location = New Point(310, 187)
         btCancelar.Name = "btCancelar"
