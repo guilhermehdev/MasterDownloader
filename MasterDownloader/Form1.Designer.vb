@@ -25,6 +25,8 @@ Partial Class Form1
         AlterarPastaDestinoToolStripMenuItem = New ToolStripMenuItem()
         btCancelar = New Button()
         timerFakeProgress = New Timer(components)
+        Button1 = New Button()
+        ToolTip1 = New ToolTip(components)
         StatusStrip1.SuspendLayout()
         MenuStrip1.SuspendLayout()
         SuspendLayout()
@@ -50,6 +52,7 @@ Partial Class Form1
         btnAdicionar.Size = New Size(45, 23)
         btnAdicionar.TabIndex = 2
         btnAdicionar.Text = "Add"
+        ToolTip1.SetToolTip(btnAdicionar, "Adiciona à fila e valida o link")
         btnAdicionar.UseVisualStyleBackColor = False
         ' 
         ' btnExecutar
@@ -62,9 +65,10 @@ Partial Class Form1
         btnExecutar.ForeColor = Color.White
         btnExecutar.Location = New Point(207, 187)
         btnExecutar.Name = "btnExecutar"
-        btnExecutar.Size = New Size(102, 30)
+        btnExecutar.Size = New Size(113, 30)
         btnExecutar.TabIndex = 3
         btnExecutar.Text = "Download"
+        ToolTip1.SetToolTip(btnExecutar, "Inicia o download")
         btnExecutar.UseVisualStyleBackColor = False
         ' 
         ' txtLog
@@ -95,18 +99,19 @@ Partial Class Form1
         btLimparLista.FlatAppearance.MouseOverBackColor = Color.DarkOrange
         btLimparLista.FlatStyle = FlatStyle.Flat
         btLimparLista.ForeColor = Color.White
-        btLimparLista.Location = New Point(413, 187)
+        btLimparLista.Location = New Point(392, 187)
         btLimparLista.Name = "btLimparLista"
-        btLimparLista.Size = New Size(90, 30)
+        btLimparLista.Size = New Size(60, 30)
         btLimparLista.TabIndex = 13
-        btLimparLista.Text = "Limpar lista "
+        btLimparLista.Text = "Limpar "
+        ToolTip1.SetToolTip(btLimparLista, "Esvazia a lista de links")
         btLimparLista.UseVisualStyleBackColor = False
         ' 
         ' progressBarDownload
         ' 
-        progressBarDownload.Location = New Point(12, 404)
+        progressBarDownload.Location = New Point(12, 403)
         progressBarDownload.Name = "progressBarDownload"
-        progressBarDownload.Size = New Size(491, 23)
+        progressBarDownload.Size = New Size(491, 46)
         progressBarDownload.Style = ProgressBarStyle.Continuous
         progressBarDownload.TabIndex = 14
         ' 
@@ -123,7 +128,7 @@ Partial Class Form1
         ' StatusStrip1
         ' 
         StatusStrip1.Items.AddRange(New ToolStripItem() {StatusLabel})
-        StatusStrip1.Location = New Point(0, 438)
+        StatusStrip1.Location = New Point(0, 458)
         StatusStrip1.Name = "StatusStrip1"
         StatusStrip1.Size = New Size(516, 22)
         StatusStrip1.TabIndex = 16
@@ -146,6 +151,7 @@ Partial Class Form1
         btLog.Size = New Size(80, 30)
         btLog.TabIndex = 17
         btLog.Text = "Exibir Log"
+        ToolTip1.SetToolTip(btLog, "Log de mensagens do sistema")
         btLog.UseVisualStyleBackColor = True
         ' 
         ' chkLegendas
@@ -153,7 +159,7 @@ Partial Class Form1
         chkLegendas.AutoSize = True
         chkLegendas.Location = New Point(12, 202)
         chkLegendas.Name = "chkLegendas"
-        chkLegendas.Size = New Size(107, 19)
+        chkLegendas.Size = New Size(108, 19)
         chkLegendas.TabIndex = 18
         chkLegendas.Text = "Baixar legendas"
         chkLegendas.UseVisualStyleBackColor = True
@@ -195,19 +201,35 @@ Partial Class Form1
         btCancelar.FlatAppearance.MouseOverBackColor = Color.DarkRed
         btCancelar.FlatStyle = FlatStyle.Flat
         btCancelar.ForeColor = Color.White
-        btCancelar.Location = New Point(310, 187)
+        btCancelar.Location = New Point(326, 187)
         btCancelar.Name = "btCancelar"
-        btCancelar.Size = New Size(102, 30)
+        btCancelar.Size = New Size(60, 30)
         btCancelar.TabIndex = 20
-        btCancelar.Text = "Cancelar"
+        btCancelar.Text = "Parar"
+        ToolTip1.SetToolTip(btCancelar, "Para todos os downloads")
         btCancelar.UseVisualStyleBackColor = False
         ' 
         ' timerFakeProgress
         ' 
         ' 
+        ' Button1
+        ' 
+        Button1.Cursor = Cursors.Hand
+        Button1.FlatAppearance.BorderColor = Color.DarkGray
+        Button1.FlatAppearance.MouseOverBackColor = Color.LightGray
+        Button1.FlatStyle = FlatStyle.Flat
+        Button1.Location = New Point(458, 187)
+        Button1.Name = "Button1"
+        Button1.Size = New Size(45, 30)
+        Button1.TabIndex = 21
+        Button1.Text = "..."
+        ToolTip1.SetToolTip(Button1, "Abre a pasta de downloads")
+        Button1.UseVisualStyleBackColor = True
+        ' 
         ' Form1
         ' 
-        ClientSize = New Size(516, 460)
+        ClientSize = New Size(516, 480)
+        Controls.Add(Button1)
         Controls.Add(btCancelar)
         Controls.Add(chkLegendas)
         Controls.Add(btLog)
@@ -253,4 +275,6 @@ Partial Class Form1
     Private WithEvents btCancelar As Button
     Friend WithEvents StatusLabel As ToolStripStatusLabel
     Friend WithEvents timerFakeProgress As Timer
+    Friend WithEvents Button1 As Button
+    Friend WithEvents ToolTip1 As ToolTip
 End Class

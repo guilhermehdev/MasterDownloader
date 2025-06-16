@@ -12,20 +12,19 @@ Public Class Form1
     Private linksConcluidos As Integer = 0
     Private processoYtDlp As Process = Nothing
     Private ultimaLinhaHLS As String = ""
+    Private ultimaLinhaPlaylist As String = ""
     Private inicioHLS As DateTime
     Private progressoAtualLink As Integer = 0
     Private totalEtapasPorLink As Integer = 2 ' Video + Audio = 2 etapas
-
-
+    Private canceladoPeloUsuario As Boolean = False
 
     Private Async Sub BtnAdicionar_Click(sender As Object, e As EventArgs) Handles btnAdicionar.Click
-        StatusLabel.Text = "Status: Adicionando link..."
-        Application.DoEvents()
-
         Dim link As String = txtUrl.Text.Trim()
-        Me.Cursor = Cursors.WaitCursor
 
         If link <> "" Then
+            StatusLabel.Text = "Status: Adicionando link..."
+            Application.DoEvents()
+            Me.Cursor = Cursors.WaitCursor
             File.AppendAllText(downloadFilePath, link & Environment.NewLine)
             lstLinks.Items.Add(link)
             txtUrl.Clear()
@@ -108,8 +107,8 @@ Public Class Form1
             Dim links = File.ReadAllLines(downloadFilePath)
             lstLinks.Items.AddRange(links)
         End If
-        progressBarDownload.Location = New Point(12, 222)
-        Me.Height = 315
+        progressBarDownload.Location = New Point(12, 224)
+        Me.Height = 335
         AddHandler timerFakeProgress.Tick, AddressOf timerFakeProgress_Tick
 
     End Sub
@@ -120,11 +119,11 @@ Public Class Form1
 
     Private Function IsHLS(link As String) As Boolean
         Try
-            Dim ytDlpPath As String = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
 
+            Dim ytDlpPath As String = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
             Dim psi As New ProcessStartInfo() With {
             .FileName = ytDlpPath,
-            .Arguments = $"--dump-json --no-warnings {link}",
+            .Arguments = $"--dump-json --no-warnings --playlist-items 1 {link}",
             .UseShellExecute = False,
             .RedirectStandardOutput = True,
             .RedirectStandardError = True,
@@ -143,19 +142,18 @@ Public Class Form1
                     Return True
                 End If
             End Using
+
         Catch ex As Exception
             txtLog.Invoke(Sub() txtLog.AppendText($"[ERRO ao detectar protocolo HLS] {ex.Message}" & Environment.NewLine))
         End Try
 
         Return False
     End Function
-
-
     Private Async Sub BtnExecutar_Click(sender As Object, e As EventArgs) Handles btnExecutar.Click
         txtLog.Clear()
         StatusLabel.Text = "Status: Iniciando..."
         Application.DoEvents()
-        ' progressBarDownload.Value = 0
+        Me.Cursor = Cursors.WaitCursor
         linksConcluidos = 0
 
         If File.Exists(downloadFilePath) Then
@@ -174,20 +172,16 @@ Public Class Form1
 
         Dim links = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
 
-
         Try
             btCancelar.Enabled = True
-            'Dim sucessoVideoStream As Boolean
-            'Dim sucessoVideo As Boolean
-            'Dim sucessoAudio As Boolean
-
-            progressBarDownload.Maximum = totalEtapasPorLink * 100 ' Exemplo: 200 se considerar 100% pra cada etapa
-
+            progressBarDownload.Maximum = totalEtapasPorLink * 100
 
             For Each link In links
+
                 progressoAtualLink = 0
                 progressBarDownload.Value = 0
                 If IsHLS(link) Then
+
                     Dim argsVideoStream As New StringBuilder()
                     ' MsgBox("O link é de uma transmissão ao vivo ou HLS. O download pode demorar mais tempo.", MsgBoxStyle.Information, "Transmissão ao Vivo ou HLS Detectado")
                     argsVideoStream.Append($"--no-batch-file ""{link}"" ")
@@ -199,6 +193,7 @@ Public Class Form1
                     Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsVideoStream.ToString())
                     progressoAtualLink = progressBarDownload.Maximum
                 Else
+
                     Dim argsVideo As New StringBuilder()
                     Dim argsAudio As New StringBuilder()
                     '  MsgBox("O link é de um vídeo normal. O download será dividido em vídeo e áudio.", MsgBoxStyle.Information, "Vídeo Normal Detectado")
@@ -231,9 +226,6 @@ Public Class Form1
 
                     Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsVideo.ToString())
                     progressoAtualLink += 100
-
-
-
 
                 End If
 
@@ -299,6 +291,16 @@ Public Class Form1
         ' Handler para a saída padrão (output)
         AddHandler proc.OutputDataReceived, Sub(s, ev)
                                                 If ev.Data IsNot Nothing Then
+
+                                                    If ev.Data.Contains("[download] Downloading item") Then
+
+                                                        Me.Invoke(Sub()
+                                                                      Dim statusText As String = ev.Data.Replace("[download] Downloading item", "Status: Baixando item da playlist ")
+                                                                      StatusLabel.Text = statusText
+                                                                  End Sub)
+
+                                                    End If
+
                                                     If ev.Data.Contains("Deleting original file") Then
                                                         ' Ignora completamente essa linha
                                                         Return
@@ -390,6 +392,9 @@ Public Class Form1
                                     End Try
                                     ultimaLinhaHLS = ""
                                     tcs.TrySetResult(True)
+                                    Me.Invoke(Sub()
+                                                  StatusLabel.Text = "Status: Aguardando..."
+                                              End Sub)
                                 End Sub
 
         Try
@@ -424,8 +429,6 @@ Public Class Form1
             Return "?"
         End Try
     End Function
-
-
     Private Function MergeTodosOsVideosEAudios()
         Dim pastaDestino As String = Path.Combine(Application.StartupPath, My.Settings.destFolder)
         Dim arquivosVideo = Directory.GetFiles(pastaDestino, "*_video.*", SearchOption.TopDirectoryOnly)
@@ -433,30 +436,30 @@ Public Class Form1
 
         StatusLabel.Text = "Status: Finalizando aguarde..."
         Me.Cursor = Cursors.WaitCursor
+        Dim allMergesOK As Boolean = False
 
         For Each video In arquivosVideo
+
             Dim nomeBase = Path.GetFileNameWithoutExtension(video).Replace("_video", "")
             Dim audio = arquivosAudio.FirstOrDefault(Function(a) Path.GetFileNameWithoutExtension(a).Replace("_audio", "") = nomeBase)
+
+            'MsgBox($"Unindo {Path.GetFileName(video)} com {If(String.IsNullOrEmpty(audio), "nenhum áudio", Path.GetFileName(audio))}", MsgBoxStyle.Information, "Unindo Vídeo e Áudio")
 
             If Not String.IsNullOrEmpty(audio) Then
                 Dim outputFinal = Path.Combine(pastaDestino, nomeBase & ".mp4")
                 If ExecutarMergeSeguro(video, audio, outputFinal) Then
-                    Try
-                        File.Delete(video)
-                        File.Delete(audio)
-                        Return True
-                    Catch ex As Exception
-                        Return False
-                    End Try
+                    File.Delete(video)
+                    File.Delete(audio)
+                    allMergesOK = True
                 Else
-                    Return False
+                    txtLog.AppendText($"❌ Falha ao fazer merge de: {Path.GetFileName(video)} e {Path.GetFileName(audio)}" & Environment.NewLine)
                 End If
             Else
-                Return False
+                txtLog.AppendText($"⚠️ Sem áudio correspondente para: {Path.GetFileName(video)}" & Environment.NewLine)
             End If
         Next
 
-        Return False
+        Return allMergesOK
 
     End Function
 
@@ -519,13 +522,13 @@ Public Class Form1
         If txtLog.Visible Then
             btLog.Text = "Exibir Log"
             txtLog.Visible = False
-            progressBarDownload.Location = New Point(12, 222)
-            Me.Height = 315
+            progressBarDownload.Location = New Point(12, 224)
+            Height = 335
         Else
             txtLog.Visible = True
             txtLog.Location = New Point(12, 222)
-            progressBarDownload.Location = New Point(12, 404)
-            Me.Height = 500
+            progressBarDownload.Location = New Point(12, 407)
+            Height = 520
             btLog.Text = "Ocultar Log"
         End If
 
@@ -544,14 +547,15 @@ Public Class Form1
 
     Private Sub btCancelar_Click(sender As Object, e As EventArgs) Handles btCancelar.Click
         Dim pastaDestino = Path.Combine(Application.StartupPath, My.Settings.destFolder)
+        canceladoPeloUsuario = True
 
         Task.Run(Sub()
-                     If processoYtDlp IsNot Nothing Then
+                     If processoYtDlp IsNot Nothing AndAlso Not processoYtDlp.HasExited Then
                          Try
-                             If Not processoYtDlp.HasExited Then
-                                 processoYtDlp.Kill(entireProcessTree:=True)
-                                 processoYtDlp.WaitForExit()
-                             End If
+                             processoYtDlp.Kill(entireProcessTree:=True)
+                             processoYtDlp.WaitForExit(3000)
+                             processoYtDlp.Dispose()
+                             processoYtDlp = Nothing
 
                              Dim arquivosPart = Directory.GetFiles(pastaDestino, "*.part", SearchOption.TopDirectoryOnly)
                              Dim arquivosVideo = arquivosPart.Where(Function(f) f.EndsWith(".mp4.part") OrElse f.EndsWith(".webm.part")).ToList()
@@ -659,4 +663,14 @@ Public Class Form1
             progressBarDownload.Value = 0
         End If
     End Sub
+    Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
+        Dim pastaDestino As String = IO.Path.Combine(Application.StartupPath, My.Settings.destFolder)
+        If IO.Directory.Exists(pastaDestino) Then
+            Process.Start("explorer.exe", pastaDestino)
+        Else
+            Process.Start("explorer.exe", Application.StartupPath & "\downloaded")
+        End If
+
+    End Sub
+
 End Class
