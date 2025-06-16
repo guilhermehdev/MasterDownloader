@@ -177,6 +177,7 @@ Public Class Form1
             progressBarDownload.Maximum = totalEtapasPorLink * 100
 
             For Each link In links
+                If canceladoPeloUsuario Then Exit For
 
                 progressoAtualLink = 0
                 progressBarDownload.Value = 0
@@ -190,6 +191,7 @@ Public Class Form1
                     argsVideoStream.Append("--ignore-errors ")
                     argsVideoStream.Append("--cookies ""cookies.txt"" ")
                     argsVideoStream.Append("--no-warnings ")
+                    If canceladoPeloUsuario Then Exit For
                     Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsVideoStream.ToString())
                     progressoAtualLink = progressBarDownload.Maximum
                 Else
@@ -208,6 +210,7 @@ Public Class Form1
                     If CheckBoxAudio.Checked Then
                         argsAudio.Append("--extract-audio --audio-format mp3 ")
                     End If
+                    If canceladoPeloUsuario Then Exit For
                     Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsAudio.ToString())
                     progressoAtualLink += 100
                     If CheckBoxAudio.Checked Then
@@ -223,7 +226,7 @@ Public Class Form1
                     If chkLegendas.Checked Then
                         argsVideo.Append("--write-sub --sub-langs ""pt.*"" --sub-format srt --embed-subs ")
                     End If
-
+                    If canceladoPeloUsuario Then Exit For
                     Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsVideo.ToString())
                     progressoAtualLink += 100
 
@@ -251,6 +254,7 @@ Public Class Form1
             StatusLabel.Text = "Status: Falha no download..."
             Application.DoEvents()
         Finally
+            canceladoPeloUsuario = False
             btnExecutar.Enabled = True
             btCancelar.Enabled = False
             progressBarDownload.Value = 0 ' Reseta a barra de progresso ao finalizar
