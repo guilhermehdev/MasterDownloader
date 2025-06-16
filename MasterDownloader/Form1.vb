@@ -225,12 +225,14 @@ Public Class Form1
                     argsVideo.Append("--ignore-errors ")
                     argsVideo.Append("--cookies ""cookies.txt"" ")
                     argsVideo.Append("--no-warnings ")
+                    If chkLegendas.Checked Then
+                        argsVideo.Append("--write-sub --sub-langs ""pt.*"" --sub-format srt --embed-subs ")
+                    End If
+
                     Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsVideo.ToString())
                     progressoAtualLink += 100
 
-                    If chkLegendas.Checked Then
-                        argsVideo.Append("--write-sub --sub-langs ""pt.*"" --embed-subs ")
-                    End If
+
 
 
                 End If
