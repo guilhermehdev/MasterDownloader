@@ -11,6 +11,12 @@ Public Class Form1
     Private totalLinks As Integer = 0
     Private linksConcluidos As Integer = 0
     Private processoYtDlp As Process = Nothing
+    Private ultimaLinhaHLS As String = ""
+    Private inicioHLS As DateTime
+    Private progressoAtualLink As Integer = 0
+    Private totalEtapasPorLink As Integer = 2 ' Video + Audio = 2 etapas
+
+
 
     Private Async Sub BtnAdicionar_Click(sender As Object, e As EventArgs) Handles btnAdicionar.Click
         StatusLabel.Text = "Status: Adicionando link..."
@@ -65,7 +71,6 @@ Public Class Form1
             File.WriteAllText(caminho, String.Empty)
             txtLog.AppendText(Environment.NewLine & "🧹 Arquivo download.txt limpo com sucesso!" & Environment.NewLine)
             lstLinks.Items.Clear() ' Se estiver usando ListBox para mostrar os links
-            StatusLabel.Text = "Status: OK"
         Catch ex As Exception
             MessageBox.Show("Erro ao limpar o arquivo: " & ex.Message, "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
@@ -148,8 +153,9 @@ Public Class Form1
 
     Private Async Sub BtnExecutar_Click(sender As Object, e As EventArgs) Handles btnExecutar.Click
         txtLog.Clear()
-
-        progressBarDownload.Value = 0
+        StatusLabel.Text = "Status: Iniciando..."
+        Application.DoEvents()
+        ' progressBarDownload.Value = 0
         linksConcluidos = 0
 
         If File.Exists(downloadFilePath) Then
@@ -162,7 +168,7 @@ Public Class Form1
             Exit Sub
         End If
 
-        progressBarDownload.Maximum = totalLinks * 100
+        '  progressBarDownload.Maximum = totalLinks * 100
         timerFakeProgress.Start()
         btnExecutar.Enabled = False
 
@@ -171,16 +177,18 @@ Public Class Form1
 
         Try
             btCancelar.Enabled = True
-            Dim argsVideoStream As New StringBuilder()
-            Dim argsVideo As New StringBuilder()
-            Dim argsAudio As New StringBuilder()
+            'Dim sucessoVideoStream As Boolean
+            'Dim sucessoVideo As Boolean
+            'Dim sucessoAudio As Boolean
 
-            Dim sucessoVideoStream As Boolean
-            Dim sucessoVideo As Boolean
-            Dim sucessoAudio As Boolean
+            progressBarDownload.Maximum = totalEtapasPorLink * 100 ' Exemplo: 200 se considerar 100% pra cada etapa
+
 
             For Each link In links
+                progressoAtualLink = 0
+                progressBarDownload.Value = 0
                 If IsHLS(link) Then
+                    Dim argsVideoStream As New StringBuilder()
                     ' MsgBox("O link é de uma transmissão ao vivo ou HLS. O download pode demorar mais tempo.", MsgBoxStyle.Information, "Transmissão ao Vivo ou HLS Detectado")
                     argsVideoStream.Append($"--no-batch-file ""{link}"" ")
                     argsVideoStream.Append("--format best ")
@@ -188,37 +196,56 @@ Public Class Form1
                     argsVideoStream.Append("--ignore-errors ")
                     argsVideoStream.Append("--cookies ""cookies.txt"" ")
                     argsVideoStream.Append("--no-warnings ")
-                    sucessoVideoStream = Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsVideoStream.ToString())
+                    Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsVideoStream.ToString())
+                    progressoAtualLink = progressBarDownload.Maximum
                 Else
+                    Dim argsVideo As New StringBuilder()
+                    Dim argsAudio As New StringBuilder()
                     '  MsgBox("O link é de um vídeo normal. O download será dividido em vídeo e áudio.", MsgBoxStyle.Information, "Vídeo Normal Detectado")
-                    argsVideo.Append($"--batch-file ""download.txt"" ")
-                    argsVideo.Append("--format bestvideo/best ")
-                    argsVideo.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ")
-                    argsVideo.Append("--ignore-errors ")
-                    argsVideo.Append("--cookies ""cookies.txt"" ")
-                    argsVideo.Append("--no-warnings ")
-                    sucessoVideo = Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsVideo.ToString())
 
-                    argsAudio.Append($"--batch-file ""download.txt"" ")
+                    argsAudio.Append($"--no-batch-file ""{link}"" ")
                     argsAudio.Append("--format bestaudio/best ")
                     argsAudio.Append($"--output ""{My.Settings.destFolder}\%(title)s_audio.%(ext)s"" ")
                     argsAudio.Append("--ignore-errors ")
                     argsAudio.Append("--cookies ""cookies.txt"" ")
                     argsAudio.Append("--no-warnings ")
-                    sucessoAudio = Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsAudio.ToString())
+
+                    If CheckBoxAudio.Checked Then
+                        argsAudio.Append("--extract-audio --audio-format mp3 ")
+                    End If
+                    Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsAudio.ToString())
+                    progressoAtualLink += 100
+                    If CheckBoxAudio.Checked Then
+                        Continue For ' Pula para o próximo link se for áudio
+                    End If
+
+                    argsVideo.Append($"--no-batch-file ""{link}"" ")
+                    argsVideo.Append("--format bestvideo/best ")
+                    argsVideo.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ")
+                    argsVideo.Append("--ignore-errors ")
+                    argsVideo.Append("--cookies ""cookies.txt"" ")
+                    argsVideo.Append("--no-warnings ")
+                    Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsVideo.ToString())
+                    progressoAtualLink += 100
+
+                    If chkLegendas.Checked Then
+                        argsVideo.Append("--write-sub --sub-langs ""pt.*"" --embed-subs ")
+                    End If
+
+
                 End If
 
             Next
-
-
             ' Dim sucesso As Boolean = Await ExecutarProcessoAsync(txtLog, progressBarDownload)
 
-            If (sucessoVideo And sucessoAudio) Or sucessoVideoStream Then
-                MergeTodosOsVideosEAudios()
+            ' If sucessoVideo Or sucessoAudio Or sucessoVideoStream Then
+            If MergeTodosOsVideosEAudios() Then
                 txtLog.AppendText(Environment.NewLine & "✅ Arquivos baixados com sucesso!" & Environment.NewLine)
                 OpenFolder()
-                StatusLabel.Text = "Status: OK"
+                StatusLabel.Text = "Status: Download concluido!"
                 Application.DoEvents()
+                Me.Cursor = Cursors.Default
+                ' End If
             Else
                 txtLog.AppendText(Environment.NewLine & "❌ O processo foi encerrado com erros." & Environment.NewLine)
                 StatusLabel.Text = "Status: Falha no download"
@@ -243,40 +270,16 @@ Public Class Form1
 
     Public Async Function ExecutarProcessoAsync(ByVal logTextBox As TextBox, ByVal progressBar As ProgressBar, ByVal argumentos As String) As Task(Of Boolean)
 
-        StatusLabel.Text = "Status: Preparando..."
-        Application.DoEvents()
-
         Dim tcs As New TaskCompletionSource(Of Boolean)()
         Dim hasErrors As Boolean = False
         Dim exitCode As Integer = -1
 
 
-        progressBar.Invoke(Sub() progressBar.Value = 0)
+        ' progressBar.Invoke(Sub() progressBar.Value = 0)
 
         Dim psi As New ProcessStartInfo With {
             .FileName = IO.Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
         }
-
-        'Dim argumentos As New System.Text.StringBuilder()
-        'argumentos.Append("--batch-file ""download.txt"" ")
-        'argumentos.Append("--no-warnings ")
-
-        If CheckBoxAudio.Checked Then
-            argumentos.Append("--extract-audio --audio-format mp3 ")
-        End If
-        If chkLegendas.Checked Then
-            argumentos.Append("--write-sub --sub-langs ""pt.*"" --embed-subs ")
-        End If
-        ' argumentos.Append($"--output ""{My.Settings.destFolder}\%(title)s.%(ext)s"" ")
-        ' argumentos.Append("--ignore-errors ")
-        ' argumentos.Append("--cookies ""cookies.txt"" ")
-        ' argumentos.Append("--format ""bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best""")
-        ' argumentos.Append("--format bestvideo ")
-        ' argumentos.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ")
-        ' argumentos.Append("--format bestaudio ")
-        ' argumentos.Append($"--output ""{My.Settings.destFolder}\%(title)s_audio.%(ext)s"" ")
-
-
 
         psi.Arguments = argumentos
 
@@ -304,13 +307,6 @@ Public Class Form1
                                                         progressBar.Invoke(Sub() progressBar.Value = 0)
                                                     End If
 
-                                                    If ev.Data.Contains("[Merging formats]") OrElse ev.Data.Contains("[Merger]") Then
-                                                        linksConcluidos += 1
-                                                        AtualizarStatus("Status: Finalizando aguarde...")
-                                                        Me.Invoke(Sub() Me.Cursor = Cursors.WaitCursor)
-                                                        txtLog.Invoke(Sub() txtLog.Cursor = Cursors.WaitCursor)
-                                                    End If
-
                                                     ' Tenta extrair o progresso da linha de saída
                                                     Dim match As Match = Regex.Match(ev.Data, "\[download\]\s+(\d{1,3}(?:\.\d+)?)%")
                                                     If match.Success Then
@@ -320,12 +316,18 @@ Public Class Form1
                                                         progressVal = Math.Min(progressVal, 100)
 
                                                         Dim progressoGlobal = (linksConcluidos * 100) + progressVal
+                                                        Me.Invoke(Sub()
+                                                                      Dim progressoTotal = progressoAtualLink + progressVal
+                                                                      If progressoTotal <= progressBarDownload.Maximum Then
+                                                                          progressBarDownload.Value = progressoTotal
+                                                                      End If
+                                                                  End Sub)
 
-                                                        progressBar.Invoke(Sub()
-                                                                               If progressoGlobal <= progressBar.Maximum Then
-                                                                                   progressBar.Value = progressoGlobal
-                                                                               End If
-                                                                           End Sub)
+                                                        'progressBar.Invoke(Sub()
+                                                        '                       If progressoGlobal <= progressBar.Maximum Then
+                                                        '                           progressBar.Value = progressoGlobal
+                                                        '                       End If
+                                                        '                   End Sub)
                                                         AtualizarStatus("Status: Download em andamento...")
                                                     End If
                                                 End If
@@ -334,52 +336,45 @@ Public Class Form1
 
         ' Handler para a saída de erro (error)
         AddHandler proc.ErrorDataReceived, Sub(s, ev)
-                                               'If ev.Data IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(ev.Data) Then
-                                               '    hasErrors = True
-                                               '    logTextBox.Invoke(Sub() logTextBox.AppendText("[ERRO] " & ev.Data & Environment.NewLine))
-                                               'End If
-
                                                If ev.Data IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(ev.Data) Then
-                                                   Dim ignorar As Boolean = False
+                                                   Dim linha = ev.Data.ToLower()
 
-                                                   Dim linhasIgnoradas = New String() {
-                                                        "Skip ('#EXT-",
-                                                        "Opening 'http",
-                                                        "size=",
-                                                        "frame=",
-                                                        "bitrate=",
-                                                        "speed=",
-                                                        "[hls @",
-                                                        "[https @",
-                                                        "[tcp @",
-                                                        "[tls @",
-                                                        "[NULL @",
-                                                        "[AVIOContext @",
-                                                        "[Parsed_",
-                                                        "[mp4 @",
-                                                        "[matroska @",
-                                                        "[mov @",
-                                                        "[mpegts @",
-                                                        "Input #",
-                                                        "Duration:",
-                                                        "Program ",
-                                                        "Stream #",
-                                                        "Metadata:",
-                                                        "Output #",
-                                                        "Stream mapping:",
-                                                        "Press [q] to stop",
-                                                        "encoder"
+                                                   ' Termos típicos de HLS que queremos interceptar
+                                                   Dim termosHLS = New String() {
+                                                       "duration:", "stream mapping:", "metadata:", "stream #", "input #", "output #",
+                                                       "program ", "encoder", "lavf", "variant_bitrate", "timed_id3", "[hls @", "[mpegts @"
                                                    }
 
-                                                   For Each prefixo In linhasIgnoradas
-                                                       If ev.Data.StartsWith(prefixo) Then
-                                                           ignorar = True
-                                                           Exit For
-                                                       End If
-                                                   Next
+                                                   ' Palavras-chave de erro real
+                                                   Dim palavrasErro = New String() {"error", "failed", "unable", "not found"}
 
-                                                   If Not ignorar Then
+                                                   ' Se for um erro crítico real
+                                                   If palavrasErro.Any(Function(p) linha.Contains(p)) Then
+                                                       hasErrors = True
                                                        Me.Invoke(Sub() txtLog.AppendText("[ERRO] " & ev.Data & Environment.NewLine))
+
+                                                       ' Se for um log técnico de HLS (ignorar a linha real e mostrar o nosso status personalizado)
+                                                   ElseIf termosHLS.Any(Function(p) linha.Contains(p)) Then
+                                                       Me.Invoke(Sub()
+                                                                     Dim tamanho = ObterTamanhoDaPasta(My.Settings.destFolder)
+                                                                     Dim tempoGravacao = DateTime.Now - inicioHLS
+                                                                     Dim tempoTexto = $"{tempoGravacao.Minutes:D2}:{tempoGravacao.Seconds:D2}"
+
+                                                                     ' Remove a última linha, se já houver
+                                                                     If Not String.IsNullOrEmpty(ultimaLinhaHLS) AndAlso txtLog.Text.Contains(ultimaLinhaHLS) Then
+                                                                         txtLog.Text = txtLog.Text.Replace(ultimaLinhaHLS, "")
+                                                                     End If
+
+                                                                     ' Atualiza com nova linha de status
+                                                                     ultimaLinhaHLS = Environment.NewLine & $"📡 Gravando stream HLS... Tempo: {tempoTexto} | Tamanho: {tamanho}" & Environment.NewLine
+                                                                     txtLog.AppendText(ultimaLinhaHLS)
+                                                                     AtualizarStatus($"Status: Gravando stream HLS... Tempo: {tempoTexto} | Tamanho atual: {tamanho}")
+                                                                 End Sub)
+
+                                                       ' Qualquer outro log normal (se quiser, pode exibir ou simplesmente ignorar)
+                                                   Else
+                                                       ' Descomente se quiser ver o resto:
+                                                       ' Me.Invoke(Sub() txtLog.AppendText(ev.Data & Environment.NewLine))
                                                    End If
                                                End If
                                            End Sub
@@ -391,10 +386,12 @@ Public Class Form1
                                     Catch ex As Exception
                                         exitCode = -1 ' Em caso de erro para pegar o ExitCode
                                     End Try
+                                    ultimaLinhaHLS = ""
                                     tcs.TrySetResult(True)
                                 End Sub
 
         Try
+            inicioHLS = DateTime.Now
             proc.Start()
             proc.BeginOutputReadLine()
             proc.BeginErrorReadLine()
@@ -413,11 +410,27 @@ Public Class Form1
         Return sucessoFinal
 
     End Function
+    Private Function ObterTamanhoDaPasta(pasta As String) As String
+        Try
+            Dim tamanhoTotal As Long = 0
+            For Each arquivo In Directory.GetFiles(pasta, "*.part", SearchOption.TopDirectoryOnly)
+                tamanhoTotal += New FileInfo(arquivo).Length
+            Next
 
-    Private Sub MergeTodosOsVideosEAudios()
+            Return (tamanhoTotal / 1024 / 1024).ToString("0.00") & " MB"
+        Catch
+            Return "?"
+        End Try
+    End Function
+
+
+    Private Function MergeTodosOsVideosEAudios()
         Dim pastaDestino As String = Path.Combine(Application.StartupPath, My.Settings.destFolder)
         Dim arquivosVideo = Directory.GetFiles(pastaDestino, "*_video.*", SearchOption.TopDirectoryOnly)
         Dim arquivosAudio = Directory.GetFiles(pastaDestino, "*_audio.*", SearchOption.TopDirectoryOnly)
+
+        StatusLabel.Text = "Status: Finalizando aguarde..."
+        Me.Cursor = Cursors.WaitCursor
 
         For Each video In arquivosVideo
             Dim nomeBase = Path.GetFileNameWithoutExtension(video).Replace("_video", "")
@@ -425,21 +438,27 @@ Public Class Form1
 
             If Not String.IsNullOrEmpty(audio) Then
                 Dim outputFinal = Path.Combine(pastaDestino, nomeBase & ".mp4")
-                ExecutarMergeSeguro(video, audio, outputFinal)
-
-                ' Apaga os arquivos individuais
-                Try
-                    File.Delete(video)
-                    File.Delete(audio)
-                    ' Me.Invoke(Sub() txtLog.AppendText($"🗑️ Removidos: {Path.GetFileName(video)} e {Path.GetFileName(audio)}" & Environment.NewLine))
-                Catch ex As Exception
-                    Me.Invoke(Sub() txtLog.AppendText($"[ERRO ao excluir arquivos fonte] {ex.Message}" & Environment.NewLine))
-                End Try
+                If ExecutarMergeSeguro(video, audio, outputFinal) Then
+                    Try
+                        File.Delete(video)
+                        File.Delete(audio)
+                        Return True
+                    Catch ex As Exception
+                        Return False
+                    End Try
+                Else
+                    Return False
+                End If
+            Else
+                Return False
             End If
         Next
-    End Sub
 
-    Private Sub ExecutarMergeSeguro(video As String, audio As String, outputFinal As String)
+        Return False
+
+    End Function
+
+    Private Function ExecutarMergeSeguro(video As String, audio As String, outputFinal As String)
         Try
             Dim ffmpegPath As String = Path.Combine(Application.StartupPath, "app", "ffmpeg.exe")
             Dim psi As New ProcessStartInfo With {
@@ -462,21 +481,25 @@ Public Class Form1
                 ffmpegProc.BeginErrorReadLine()
 
                 ' Timeout de segurança: 30 segundos
-                If Not ffmpegProc.WaitForExit(30000) Then
+                If Not ffmpegProc.WaitForExit(300000) Then
                     Try
                         ffmpegProc.Kill()
                         Me.Invoke(Sub() txtLog.AppendText($"[ERRO] ffmpeg travado ao tentar unir: {Path.GetFileName(outputFinal)}. Timeout forçado." & Environment.NewLine))
+                        Return False
                     Catch
+                        Return False
                     End Try
                 Else
+                    Return True
                     '  Me.Invoke(Sub() txtLog.AppendText($"✅ Merge concluído: {Path.GetFileName(outputFinal)}" & Environment.NewLine))
                 End If
             End Using
 
         Catch ex As Exception
             Me.Invoke(Sub() txtLog.AppendText($"[ERRO no merge de {Path.GetFileName(outputFinal)}] {ex.Message}" & Environment.NewLine))
+            Return False
         End Try
-    End Sub
+    End Function
 
 
 

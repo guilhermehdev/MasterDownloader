@@ -41,7 +41,9 @@ Partial Class Form1
         ' 
         btnAdicionar.BackColor = Color.DeepSkyBlue
         btnAdicionar.Cursor = Cursors.Hand
-        btnAdicionar.FlatAppearance.BorderSize = 0
+        btnAdicionar.FlatAppearance.BorderColor = Color.SteelBlue
+        btnAdicionar.FlatAppearance.MouseOverBackColor = Color.SteelBlue
+        btnAdicionar.FlatStyle = FlatStyle.Flat
         btnAdicionar.ForeColor = Color.White
         btnAdicionar.Location = New Point(458, 30)
         btnAdicionar.Name = "btnAdicionar"
@@ -54,8 +56,9 @@ Partial Class Form1
         ' 
         btnExecutar.BackColor = Color.YellowGreen
         btnExecutar.Cursor = Cursors.Hand
-        btnExecutar.FlatAppearance.BorderColor = Color.IndianRed
-        btnExecutar.FlatAppearance.MouseOverBackColor = Color.DodgerBlue
+        btnExecutar.FlatAppearance.BorderColor = Color.Green
+        btnExecutar.FlatAppearance.MouseOverBackColor = Color.Green
+        btnExecutar.FlatStyle = FlatStyle.Flat
         btnExecutar.ForeColor = Color.White
         btnExecutar.Location = New Point(207, 187)
         btnExecutar.Name = "btnExecutar"
@@ -86,9 +89,11 @@ Partial Class Form1
         ' 
         ' btLimparLista
         ' 
-        btLimparLista.BackColor = Color.Silver
+        btLimparLista.BackColor = Color.Orange
         btLimparLista.Cursor = Cursors.Hand
-        btLimparLista.FlatAppearance.BorderSize = 0
+        btLimparLista.FlatAppearance.BorderColor = Color.DarkOrange
+        btLimparLista.FlatAppearance.MouseOverBackColor = Color.DarkOrange
+        btLimparLista.FlatStyle = FlatStyle.Flat
         btLimparLista.ForeColor = Color.White
         btLimparLista.Location = New Point(413, 187)
         btLimparLista.Name = "btLimparLista"
@@ -133,6 +138,9 @@ Partial Class Form1
         ' btLog
         ' 
         btLog.Cursor = Cursors.Hand
+        btLog.FlatAppearance.BorderColor = Color.DarkGray
+        btLog.FlatAppearance.MouseOverBackColor = Color.LightGray
+        btLog.FlatStyle = FlatStyle.Flat
         btLog.Location = New Point(121, 187)
         btLog.Name = "btLog"
         btLog.Size = New Size(80, 30)
@@ -180,10 +188,12 @@ Partial Class Form1
         ' 
         ' btCancelar
         ' 
-        btCancelar.BackColor = Color.OrangeRed
+        btCancelar.BackColor = Color.Firebrick
         btCancelar.Cursor = Cursors.Hand
         btCancelar.Enabled = False
-        btCancelar.FlatAppearance.BorderSize = 0
+        btCancelar.FlatAppearance.BorderColor = Color.DarkRed
+        btCancelar.FlatAppearance.MouseOverBackColor = Color.DarkRed
+        btCancelar.FlatStyle = FlatStyle.Flat
         btCancelar.ForeColor = Color.White
         btCancelar.Location = New Point(310, 187)
         btCancelar.Name = "btCancelar"
