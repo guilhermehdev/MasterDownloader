@@ -149,6 +149,33 @@ Public Class Form1
 
         Return False
     End Function
+    Private Function IsPlaylist(link As String) As Boolean
+        Try
+            Dim ytDlpPath As String = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
+            Dim psi As New ProcessStartInfo() With {
+            .FileName = ytDlpPath,
+            .Arguments = $"--dump-single-json --no-warnings --playlist-items 1 {link}",
+            .UseShellExecute = False,
+            .RedirectStandardOutput = True,
+            .RedirectStandardError = True,
+            .CreateNoWindow = True
+        }
+
+            Using proc As Process = Process.Start(psi)
+                Dim output As String = proc.StandardOutput.ReadToEnd()
+                proc.WaitForExit()
+
+                If output.Contains("""_type"": ""playlist""") Then
+                    Return True
+                End If
+            End Using
+        Catch ex As Exception
+            txtLog.Invoke(Sub() txtLog.AppendText($"[ERRO ao detectar Playlist] {ex.Message}" & Environment.NewLine))
+        End Try
+
+        Return False
+    End Function
+
     Private Async Sub BtnExecutar_Click(sender As Object, e As EventArgs) Handles btnExecutar.Click
         txtLog.Clear()
         StatusLabel.Text = "Status: Iniciando..."
@@ -171,7 +198,8 @@ Public Class Form1
         btnExecutar.Enabled = False
 
         Dim links = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
-
+        Dim linkIsPlaylist As Boolean = False
+        Dim linkIsOnlyAudio As Boolean = False
         Try
             btCancelar.Enabled = True
             progressBarDownload.Maximum = totalEtapasPorLink * 100
@@ -184,8 +212,7 @@ Public Class Form1
                 If IsHLS(link) Then
 
                     Dim argsVideoStream As New StringBuilder()
-                    ' MsgBox("O link é de uma transmissão ao vivo ou HLS. O download pode demorar mais tempo.", MsgBoxStyle.Information, "Transmissão ao Vivo ou HLS Detectado")
-                    argsVideoStream.Append($"--no-batch-file ""{link}"" ")
+                    argsVideoStream.Append($" ""{link}"" ")
                     argsVideoStream.Append("--format best ")
                     argsVideoStream.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ")
                     argsVideoStream.Append("--ignore-errors ")
@@ -198,28 +225,45 @@ Public Class Form1
 
                     Dim argsVideo As New StringBuilder()
                     Dim argsAudio As New StringBuilder()
-                    '  MsgBox("O link é de um vídeo normal. O download será dividido em vídeo e áudio.", MsgBoxStyle.Information, "Vídeo Normal Detectado")
 
-                    argsAudio.Append($"--no-batch-file ""{link}"" ")
+                    If IsPlaylist(link) Then
+                        linkIsPlaylist = True
+                        argsVideo.Append("--extractor-args ""youtubetab:skip=authcheck"" ")
+                        argsVideo.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a] ")
+                        argsVideo.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ""{link}"" ")
+                        argsVideo.Append("--ignore-errors ")
+                        argsVideo.Append("--cookies ""cookies.txt"" ")
+                        argsVideo.Append("--no-warnings ")
+                        If chkLegendas.Checked Then
+                            argsVideo.Append("--write-sub --sub-langs ""pt.*"" --sub-format srt --embed-subs ")
+                        End If
+                        If canceladoPeloUsuario Then Exit For
+                        Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsVideo.ToString())
+                        progressoAtualLink += 200
+                        Continue For ' Pula para o próximo link se for playlist
+                    End If
+
                     argsAudio.Append("--format bestaudio/best ")
-                    argsAudio.Append($"--output ""{My.Settings.destFolder}\%(title)s_audio.%(ext)s"" ")
+                    argsAudio.Append($"--output ""{My.Settings.destFolder}\%(title)s_audio.%(ext)s"" ""{link}"" ")
                     argsAudio.Append("--ignore-errors ")
                     argsAudio.Append("--cookies ""cookies.txt"" ")
                     argsAudio.Append("--no-warnings ")
 
                     If CheckBoxAudio.Checked Then
                         argsAudio.Append("--extract-audio --audio-format mp3 ")
+                        linkIsOnlyAudio = True
                     End If
                     If canceladoPeloUsuario Then Exit For
                     Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsAudio.ToString())
                     progressoAtualLink += 100
+
                     If CheckBoxAudio.Checked Then
                         Continue For ' Pula para o próximo link se for áudio
                     End If
 
-                    argsVideo.Append($"--no-batch-file ""{link}"" ")
-                    argsVideo.Append("--format bestvideo/best ")
-                    argsVideo.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ")
+                    argsVideo.Append("--extractor-args ""youtubetab:skip=authcheck"" ")
+                    argsVideo.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a] ")
+                    argsVideo.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ""{link}"" ")
                     argsVideo.Append("--ignore-errors ")
                     argsVideo.Append("--cookies ""cookies.txt"" ")
                     argsVideo.Append("--no-warnings ")
@@ -233,20 +277,26 @@ Public Class Form1
                 End If
 
             Next
-            ' Dim sucesso As Boolean = Await ExecutarProcessoAsync(txtLog, progressBarDownload)
 
-            ' If sucessoVideo Or sucessoAudio Or sucessoVideoStream Then
-            If MergeTodosOsVideosEAudios() Then
+            If linkIsPlaylist Or linkIsOnlyAudio Then
                 txtLog.AppendText(Environment.NewLine & "✅ Arquivos baixados com sucesso!" & Environment.NewLine)
                 OpenFolder()
                 StatusLabel.Text = "Status: Download concluido!"
                 Application.DoEvents()
                 Me.Cursor = Cursors.Default
-                ' End If
             Else
-                txtLog.AppendText(Environment.NewLine & "❌ O processo foi encerrado com erros." & Environment.NewLine)
-                StatusLabel.Text = "Status: Falha no download"
-                Application.DoEvents()
+                If MergeTodosOsVideosEAudios() Then
+                    txtLog.AppendText(Environment.NewLine & "✅ Arquivos baixados com sucesso!" & Environment.NewLine)
+                    OpenFolder()
+                    StatusLabel.Text = "Status: Download concluido!"
+                    Application.DoEvents()
+                    Me.Cursor = Cursors.Default
+
+                Else
+                    txtLog.AppendText(Environment.NewLine & "❌ O processo foi encerrado com erros." & Environment.NewLine)
+                    StatusLabel.Text = "Status: Falha no download"
+                    Application.DoEvents()
+                End If
             End If
 
         Catch ex As Exception
@@ -280,7 +330,6 @@ Public Class Form1
         }
 
         psi.Arguments = argumentos
-
         psi.WorkingDirectory = Application.StartupPath
         psi.UseShellExecute = False
         psi.RedirectStandardOutput = True
@@ -433,6 +482,7 @@ Public Class Form1
             Return "?"
         End Try
     End Function
+
     Private Function MergeTodosOsVideosEAudios()
         Dim pastaDestino As String = Path.Combine(Application.StartupPath, My.Settings.destFolder)
         Dim arquivosVideo = Directory.GetFiles(pastaDestino, "*_video.*", SearchOption.TopDirectoryOnly)
@@ -509,8 +559,6 @@ Public Class Form1
             Return False
         End Try
     End Function
-
-
 
     Private Sub OpenFolder()
         Dim pastaDestino As String = IO.Path.Combine(Application.StartupPath, My.Settings.destFolder)
