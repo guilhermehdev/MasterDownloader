@@ -73,6 +73,8 @@ Partial Class Form1
         ' 
         ' txtLog
         ' 
+        txtLog.BackColor = Color.Black
+        txtLog.ForeColor = Color.Chartreuse
         txtLog.Location = New Point(12, 222)
         txtLog.Multiline = True
         txtLog.Name = "txtLog"
@@ -159,7 +161,7 @@ Partial Class Form1
         chkLegendas.AutoSize = True
         chkLegendas.Location = New Point(12, 202)
         chkLegendas.Name = "chkLegendas"
-        chkLegendas.Size = New Size(108, 19)
+        chkLegendas.Size = New Size(107, 19)
         chkLegendas.TabIndex = 18
         chkLegendas.Text = "Baixar legendas"
         chkLegendas.UseVisualStyleBackColor = True

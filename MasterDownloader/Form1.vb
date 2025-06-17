@@ -15,13 +15,16 @@ Public Class Form1
     Private ultimaLinhaPlaylist As String = ""
     Private inicioHLS As DateTime
     Private progressoAtualLink As Integer = 0
-    Private totalEtapasPorLink As Integer = 2 ' Video + Audio = 2 etapas
     Private canceladoPeloUsuario As Boolean = False
 
     Private Async Sub BtnAdicionar_Click(sender As Object, e As EventArgs) Handles btnAdicionar.Click
         Dim link As String = txtUrl.Text.Trim()
 
         If link <> "" Then
+            If Not File.Exists(downloadFilePath) Then
+                MessageBox.Show("download.txt não encontrado.")
+                Return
+            End If
             StatusLabel.Text = "Status: Adicionando link..."
             Application.DoEvents()
             Me.Cursor = Cursors.WaitCursor
@@ -30,10 +33,7 @@ Public Class Form1
             txtUrl.Clear()
         End If
 
-        If Not File.Exists(downloadFilePath) Then
-            MessageBox.Show("download.txt não encontrado.")
-            Return
-        End If
+
 
         Dim links = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
         If links.Count = 0 Then
@@ -176,41 +176,55 @@ Public Class Form1
         Return False
     End Function
 
+
     Private Async Sub BtnExecutar_Click(sender As Object, e As EventArgs) Handles btnExecutar.Click
         txtLog.Clear()
         StatusLabel.Text = "Status: Iniciando..."
         Application.DoEvents()
         Me.Cursor = Cursors.WaitCursor
         linksConcluidos = 0
+        Dim etapaAtual As Integer = 0
+        Dim etapasTotais As Integer = 0
+        Dim linksList As New List(Of String)()
 
         If File.Exists(downloadFilePath) Then
-            totalLinks = File.ReadAllLines(downloadFilePath).Count(Function(l) Not String.IsNullOrWhiteSpace(l))
+            linksList = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
         End If
 
-        If totalLinks = 0 Then
+        If linksList.Count = 0 Then
             MessageBox.Show("Nenhum link válido encontrado.")
             txtLog.AppendText(Environment.NewLine & "❌ Nenhum link válido encontrado." & Environment.NewLine)
             Exit Sub
         End If
-
-        '  progressBarDownload.Maximum = totalLinks * 100
-        timerFakeProgress.Start()
+        '
         btnExecutar.Enabled = False
 
-        Dim links = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
-        Dim linkIsPlaylist As Boolean = False
-        Dim linkIsOnlyAudio As Boolean = False
         Try
             btCancelar.Enabled = True
-            progressBarDownload.Maximum = totalEtapasPorLink * 100
+            canceladoPeloUsuario = False
+            progressoAtualLink = 0
 
-            For Each link In links
+
+            ' Calcula o total de etapas
+            For Each link In linksList
+                If IsHLS(link) OrElse IsPlaylist(link) Then
+                    etapasTotais += 1
+                ElseIf CheckBoxAudio.Checked Then
+                    etapasTotais += 1
+                Else
+                    etapasTotais += 1 ' Vídeo + Áudio
+                End If
+            Next
+
+            progressBarDownload.Maximum = etapasTotais * 100
+            progressBarDownload.Value = 0
+            etapaAtual = 0
+
+            For Each link In linksList
                 If canceladoPeloUsuario Then Exit For
 
-                progressoAtualLink = 0
-                progressBarDownload.Value = 0
                 If IsHLS(link) Then
-
+                    timerFakeProgress.Start()
                     Dim argsVideoStream As New StringBuilder()
                     argsVideoStream.Append($" ""{link}"" ")
                     argsVideoStream.Append("--format best ")
@@ -219,85 +233,89 @@ Public Class Form1
                     argsVideoStream.Append("--cookies ""cookies.txt"" ")
                     argsVideoStream.Append("--no-warnings ")
                     If canceladoPeloUsuario Then Exit For
-                    Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsVideoStream.ToString())
-                    progressoAtualLink = progressBarDownload.Maximum
-                Else
+                    Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsVideoStream.ToString())
 
-                    Dim argsVideo As New StringBuilder()
-                    Dim argsAudio As New StringBuilder()
+                    etapaAtual += 1
+
+                    chkLegendas.Enabled = False ' Desmarca legendas para HLS, pois não são suportadas
+                    CheckBoxAudio.Enabled = False ' Desmarca áudio para HLS, pois não é suportado
+                    Continue For
+                Else
+                    chkLegendas.Enabled = True
+                    CheckBoxAudio.Enabled = True
+                    Dim argsPlaylist As New StringBuilder()
 
                     If IsPlaylist(link) Then
-                        linkIsPlaylist = True
-                        argsVideo.Append("--extractor-args ""youtubetab:skip=authcheck"" ")
-                        argsVideo.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a] ")
-                        argsVideo.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ""{link}"" ")
-                        argsVideo.Append("--ignore-errors ")
-                        argsVideo.Append("--cookies ""cookies.txt"" ")
-                        argsVideo.Append("--no-warnings ")
+                        argsPlaylist.Append("--extractor-args ""youtubetab:skip=authcheck"" ")
+                        argsPlaylist.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a] ")
+                        argsPlaylist.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ""{link}"" ")
+                        argsPlaylist.Append("--ignore-errors ")
+                        argsPlaylist.Append("--cookies ""cookies.txt"" ")
+                        argsPlaylist.Append("--no-warnings ")
                         If chkLegendas.Checked Then
-                            argsVideo.Append("--write-sub --sub-langs ""pt.*"" --sub-format srt --embed-subs ")
+                            argsPlaylist.Append("--write-sub --sub-langs ""pt.*"" --sub-format srt --embed-subs ")
                         End If
                         If canceladoPeloUsuario Then Exit For
-                        Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsVideo.ToString())
-                        progressoAtualLink += 200
-                        Continue For ' Pula para o próximo link se for playlist
+                        Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsPlaylist.ToString())
+
+                        etapaAtual += 1
+                        Continue For
                     End If
 
-                    argsAudio.Append("--format bestaudio/best ")
-                    argsAudio.Append($"--output ""{My.Settings.destFolder}\%(title)s_audio.%(ext)s"" ""{link}"" ")
-                    argsAudio.Append("--ignore-errors ")
-                    argsAudio.Append("--cookies ""cookies.txt"" ")
-                    argsAudio.Append("--no-warnings ")
-
                     If CheckBoxAudio.Checked Then
+                        Dim argsAudio As New StringBuilder()
                         argsAudio.Append("--extract-audio --audio-format mp3 ")
-                        linkIsOnlyAudio = True
-                    End If
-                    If canceladoPeloUsuario Then Exit For
-                    Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsAudio.ToString())
-                    progressoAtualLink += 100
+                        argsAudio.Append("--format bestaudio/best ")
+                        argsAudio.Append($"--output ""{My.Settings.destFolder}\%(title)s.%(ext)s"" ""{link}"" ")
+                        argsAudio.Append("--ignore-errors ")
+                        argsAudio.Append("--cookies ""cookies.txt"" ")
+                        argsAudio.Append("--no-warnings ")
+                        If canceladoPeloUsuario Then Exit For
+                        Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsAudio.ToString())
 
-                    If CheckBoxAudio.Checked Then
-                        Continue For ' Pula para o próximo link se for áudio
+                        etapaAtual += 1
+                        Continue For
                     End If
 
-                    argsVideo.Append("--extractor-args ""youtubetab:skip=authcheck"" ")
-                    argsVideo.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a] ")
-                    argsVideo.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ""{link}"" ")
-                    argsVideo.Append("--ignore-errors ")
-                    argsVideo.Append("--cookies ""cookies.txt"" ")
-                    argsVideo.Append("--no-warnings ")
+                    Dim argsSingleVideo As New StringBuilder()
+                    argsSingleVideo.Append("--extractor-args ""youtubetab:skip=authcheck"" ")
+                    argsSingleVideo.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a] --no-playlist ")
+                    argsSingleVideo.Append($"--output ""{My.Settings.destFolder}\%(title)s.%(ext)s"" ""{link}"" ")
+                    argsSingleVideo.Append("--ignore-errors ")
+                    argsSingleVideo.Append("--cookies ""cookies.txt"" ")
+                    argsSingleVideo.Append("--no-warnings ")
                     If chkLegendas.Checked Then
-                        argsVideo.Append("--write-sub --sub-langs ""pt.*"" --sub-format srt --embed-subs ")
+                        argsSingleVideo.Append("--write-sub --sub-langs ""pt.*"" --sub-format srt --embed-subs ")
                     End If
                     If canceladoPeloUsuario Then Exit For
-                    Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsVideo.ToString())
-                    progressoAtualLink += 100
+                    Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsSingleVideo.ToString())
+
+                    etapaAtual += 1
 
                 End If
 
             Next
 
-            If linkIsPlaylist Or linkIsOnlyAudio Then
-                txtLog.AppendText(Environment.NewLine & "✅ Arquivos baixados com sucesso!" & Environment.NewLine)
-                OpenFolder()
-                StatusLabel.Text = "Status: Download concluido!"
-                Application.DoEvents()
-                Me.Cursor = Cursors.Default
-            Else
-                If MergeTodosOsVideosEAudios() Then
-                    txtLog.AppendText(Environment.NewLine & "✅ Arquivos baixados com sucesso!" & Environment.NewLine)
-                    OpenFolder()
-                    StatusLabel.Text = "Status: Download concluido!"
-                    Application.DoEvents()
-                    Me.Cursor = Cursors.Default
+            ' If linkIsPlaylist Or linkIsOnlyAudio Then
+            txtLog.AppendText(Environment.NewLine & "✅ Arquivos baixados com sucesso!" & Environment.NewLine)
+            OpenFolder()
+            StatusLabel.Text = "Status: Download concluido!"
+            Application.DoEvents()
+            Me.Cursor = Cursors.Default
+            'Else
+            '    ' If MergeTodosOsVideosEAudios() Then
+            '    txtLog.AppendText(Environment.NewLine & "✅ Arquivos baixados com sucesso!" & Environment.NewLine)
+            '        OpenFolder()
+            '        StatusLabel.Text = "Status: Download concluido!"
+            '        Application.DoEvents()
+            '        Me.Cursor = Cursors.Default
 
-                Else
-                    txtLog.AppendText(Environment.NewLine & "❌ O processo foi encerrado com erros." & Environment.NewLine)
-                    StatusLabel.Text = "Status: Falha no download"
-                    Application.DoEvents()
-                End If
-            End If
+            'Else
+            '    txtLog.AppendText(Environment.NewLine & "❌ O processo foi encerrado com erros." & Environment.NewLine)
+            '    StatusLabel.Text = "Status: Falha no download"
+            '    Application.DoEvents()
+            'End If
+            ' End If
 
         Catch ex As Exception
             txtLog.AppendText(Environment.NewLine & $"[ERRO INESPERADO] {ex.Message}")
@@ -316,7 +334,7 @@ Public Class Form1
         End Try
     End Sub
 
-    Public Async Function ExecutarProcessoAsync(ByVal logTextBox As TextBox, ByVal progressBar As ProgressBar, ByVal argumentos As String) As Task(Of Boolean)
+    Public Async Function ExecutarProcessoAsync(ByVal logTextBox As TextBox, ByVal progressBar As ProgressBar, ByVal etapaAtual As Integer, ByVal totalEtapas As Integer, ByVal argumentos As String) As Task(Of Boolean)
 
         Dim tcs As New TaskCompletionSource(Of Boolean)()
         Dim hasErrors As Boolean = False
@@ -354,6 +372,10 @@ Public Class Form1
 
                                                     End If
 
+                                                    If ev.Data.Contains("[Merger] Merging formats into") Then
+                                                        AtualizarStatus("Status: Finalizando aguarde...")
+                                                    End If
+
                                                     If ev.Data.Contains("Deleting original file") Then
                                                         ' Ignora completamente essa linha
                                                         Return
@@ -369,25 +391,21 @@ Public Class Form1
                                                     If match.Success Then
                                                         timerFakeProgress.Stop()
                                                         Dim percentText = match.Groups(1).Value.Replace(",", ".")
-                                                        Dim progressVal As Integer = CInt(Math.Floor(Double.Parse(percentText, Globalization.CultureInfo.InvariantCulture)))
-                                                        progressVal = Math.Min(progressVal, 100)
+                                                        Dim percentEtapa As Integer = CInt(Math.Floor(Double.Parse(percentText, Globalization.CultureInfo.InvariantCulture)))
+                                                        percentEtapa = Math.Min(percentEtapa, 100)
 
-                                                        Dim progressoGlobal = (linksConcluidos * 100) + progressVal
+                                                        Dim progressoGlobal As Integer = (etapaAtual * 100) + percentEtapa
+
                                                         Me.Invoke(Sub()
-                                                                      Dim progressoTotal = progressoAtualLink + progressVal
-                                                                      If progressoTotal <= progressBarDownload.Maximum Then
-                                                                          progressBarDownload.Value = progressoTotal
-                                                                      End If
+                                                                      progressBarDownload.Maximum = totalEtapas * 100
+                                                                      progressBarDownload.Value = Math.Min(progressoGlobal, progressBarDownload.Maximum)
                                                                   End Sub)
 
-                                                        'progressBar.Invoke(Sub()
-                                                        '                       If progressoGlobal <= progressBar.Maximum Then
-                                                        '                           progressBar.Value = progressoGlobal
-                                                        '                       End If
-                                                        '                   End Sub)
                                                         AtualizarStatus("Status: Download em andamento...")
                                                     End If
+
                                                 End If
+
                                             End Sub
 
 
@@ -446,7 +464,7 @@ Public Class Form1
                                     ultimaLinhaHLS = ""
                                     tcs.TrySetResult(True)
                                     Me.Invoke(Sub()
-                                                  StatusLabel.Text = "Status: Aguardando..."
+                                                  StatusLabel.Text = "Status: Pronto..."
                                               End Sub)
                                 End Sub
 
@@ -455,6 +473,7 @@ Public Class Form1
             proc.Start()
             proc.BeginOutputReadLine()
             proc.BeginErrorReadLine()
+
         Catch ex As Exception
             logTextBox.AppendText("[FALHA CRÍTICA] Não foi possível iniciar o processo: " & ex.Message)
             tcs.TrySetResult(False)
