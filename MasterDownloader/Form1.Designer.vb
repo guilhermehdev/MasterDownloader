@@ -33,6 +33,9 @@ Partial Class Form1
         ' 
         ' txtUrl
         ' 
+        txtUrl.BackColor = Color.Black
+        txtUrl.BorderStyle = BorderStyle.FixedSingle
+        txtUrl.ForeColor = Color.Aqua
         txtUrl.Location = New Point(12, 30)
         txtUrl.Name = "txtUrl"
         txtUrl.PlaceholderText = "URL do vídeo ou playlist"
@@ -74,6 +77,7 @@ Partial Class Form1
         ' txtLog
         ' 
         txtLog.BackColor = Color.Black
+        txtLog.BorderStyle = BorderStyle.None
         txtLog.ForeColor = Color.Chartreuse
         txtLog.Location = New Point(12, 222)
         txtLog.Multiline = True
@@ -86,11 +90,14 @@ Partial Class Form1
         ' 
         ' lstLinks
         ' 
+        lstLinks.BackColor = Color.Black
+        lstLinks.BorderStyle = BorderStyle.None
+        lstLinks.ForeColor = Color.White
         lstLinks.FormattingEnabled = True
         lstLinks.ItemHeight = 15
         lstLinks.Location = New Point(12, 59)
         lstLinks.Name = "lstLinks"
-        lstLinks.Size = New Size(491, 124)
+        lstLinks.Size = New Size(491, 120)
         lstLinks.TabIndex = 12
         ' 
         ' btLimparLista
@@ -111,6 +118,8 @@ Partial Class Form1
         ' 
         ' progressBarDownload
         ' 
+        progressBarDownload.BackColor = Color.DimGray
+        progressBarDownload.ForeColor = Color.GreenYellow
         progressBarDownload.Location = New Point(12, 403)
         progressBarDownload.Name = "progressBarDownload"
         progressBarDownload.Size = New Size(491, 46)
@@ -120,6 +129,7 @@ Partial Class Form1
         ' CheckBoxAudio
         ' 
         CheckBoxAudio.AutoSize = True
+        CheckBoxAudio.ForeColor = Color.White
         CheckBoxAudio.Location = New Point(12, 185)
         CheckBoxAudio.Name = "CheckBoxAudio"
         CheckBoxAudio.Size = New Size(100, 19)
@@ -129,6 +139,7 @@ Partial Class Form1
         ' 
         ' StatusStrip1
         ' 
+        StatusStrip1.BackColor = Color.FromArgb(CByte(40), CByte(40), CByte(40))
         StatusStrip1.Items.AddRange(New ToolStripItem() {StatusLabel})
         StatusStrip1.Location = New Point(0, 458)
         StatusStrip1.Name = "StatusStrip1"
@@ -138,28 +149,32 @@ Partial Class Form1
         ' 
         ' StatusLabel
         ' 
+        StatusLabel.ForeColor = Color.White
         StatusLabel.Name = "StatusLabel"
-        StatusLabel.Size = New Size(120, 17)
-        StatusLabel.Text = "Status: Aguardando..."
+        StatusLabel.Size = New Size(90, 17)
+        StatusLabel.Text = "Status: Pronto..."
         ' 
         ' btLog
         ' 
+        btLog.BackColor = Color.White
         btLog.Cursor = Cursors.Hand
         btLog.FlatAppearance.BorderColor = Color.DarkGray
         btLog.FlatAppearance.MouseOverBackColor = Color.LightGray
         btLog.FlatStyle = FlatStyle.Flat
+        btLog.ForeColor = Color.Black
         btLog.Location = New Point(121, 187)
         btLog.Name = "btLog"
         btLog.Size = New Size(80, 30)
         btLog.TabIndex = 17
         btLog.Text = "Exibir Log"
         ToolTip1.SetToolTip(btLog, "Log de mensagens do sistema")
-        btLog.UseVisualStyleBackColor = True
+        btLog.UseVisualStyleBackColor = False
         ' 
         ' chkLegendas
         ' 
         chkLegendas.AutoSize = True
-        chkLegendas.Location = New Point(12, 202)
+        chkLegendas.ForeColor = Color.White
+        chkLegendas.Location = New Point(12, 203)
         chkLegendas.Name = "chkLegendas"
         chkLegendas.Size = New Size(107, 19)
         chkLegendas.TabIndex = 18
@@ -168,6 +183,7 @@ Partial Class Form1
         ' 
         ' MenuStrip1
         ' 
+        MenuStrip1.BackColor = Color.FromArgb(CByte(40), CByte(40), CByte(40))
         MenuStrip1.Items.AddRange(New ToolStripItem() {ConfoguraçõesToolStripMenuItem})
         MenuStrip1.Location = New Point(0, 0)
         MenuStrip1.Name = "MenuStrip1"
@@ -177,19 +193,25 @@ Partial Class Form1
         ' 
         ' ConfoguraçõesToolStripMenuItem
         ' 
+        ConfoguraçõesToolStripMenuItem.BackColor = Color.FromArgb(CByte(40), CByte(40), CByte(40))
         ConfoguraçõesToolStripMenuItem.DropDownItems.AddRange(New ToolStripItem() {ImportarCookiesPrivadosToolStripMenuItem, AlterarPastaDestinoToolStripMenuItem})
+        ConfoguraçõesToolStripMenuItem.ForeColor = Color.White
         ConfoguraçõesToolStripMenuItem.Name = "ConfoguraçõesToolStripMenuItem"
         ConfoguraçõesToolStripMenuItem.Size = New Size(96, 20)
         ConfoguraçõesToolStripMenuItem.Text = "Configurações"
         ' 
         ' ImportarCookiesPrivadosToolStripMenuItem
         ' 
+        ImportarCookiesPrivadosToolStripMenuItem.BackColor = Color.FromArgb(CByte(40), CByte(40), CByte(40))
+        ImportarCookiesPrivadosToolStripMenuItem.ForeColor = Color.White
         ImportarCookiesPrivadosToolStripMenuItem.Name = "ImportarCookiesPrivadosToolStripMenuItem"
         ImportarCookiesPrivadosToolStripMenuItem.Size = New Size(211, 22)
         ImportarCookiesPrivadosToolStripMenuItem.Text = "Importar cookies privados"
         ' 
         ' AlterarPastaDestinoToolStripMenuItem
         ' 
+        AlterarPastaDestinoToolStripMenuItem.BackColor = Color.FromArgb(CByte(40), CByte(40), CByte(40))
+        AlterarPastaDestinoToolStripMenuItem.ForeColor = Color.White
         AlterarPastaDestinoToolStripMenuItem.Name = "AlterarPastaDestinoToolStripMenuItem"
         AlterarPastaDestinoToolStripMenuItem.Size = New Size(211, 22)
         AlterarPastaDestinoToolStripMenuItem.Text = "Alterar pasta destino"
@@ -216,20 +238,23 @@ Partial Class Form1
         ' 
         ' Button1
         ' 
+        Button1.BackColor = SystemColors.ButtonFace
         Button1.Cursor = Cursors.Hand
         Button1.FlatAppearance.BorderColor = Color.DarkGray
         Button1.FlatAppearance.MouseOverBackColor = Color.LightGray
         Button1.FlatStyle = FlatStyle.Flat
+        Button1.ForeColor = Color.Black
         Button1.Location = New Point(458, 187)
         Button1.Name = "Button1"
         Button1.Size = New Size(45, 30)
         Button1.TabIndex = 21
         Button1.Text = "..."
         ToolTip1.SetToolTip(Button1, "Abre a pasta de downloads")
-        Button1.UseVisualStyleBackColor = True
+        Button1.UseVisualStyleBackColor = False
         ' 
         ' Form1
         ' 
+        BackColor = Color.FromArgb(CByte(40), CByte(40), CByte(40))
         ClientSize = New Size(516, 480)
         Controls.Add(Button1)
         Controls.Add(btCancelar)

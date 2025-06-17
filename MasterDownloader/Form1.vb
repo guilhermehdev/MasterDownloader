@@ -178,15 +178,8 @@ Public Class Form1
 
 
     Private Async Sub BtnExecutar_Click(sender As Object, e As EventArgs) Handles btnExecutar.Click
-        txtLog.Clear()
-        StatusLabel.Text = "Status: Iniciando..."
-        Application.DoEvents()
-        Me.Cursor = Cursors.WaitCursor
-        linksConcluidos = 0
-        Dim etapaAtual As Integer = 0
-        Dim etapasTotais As Integer = 0
-        Dim linksList As New List(Of String)()
 
+        Dim linksList As New List(Of String)()
         If File.Exists(downloadFilePath) Then
             linksList = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
         End If
@@ -196,7 +189,14 @@ Public Class Form1
             txtLog.AppendText(Environment.NewLine & "❌ Nenhum link válido encontrado." & Environment.NewLine)
             Exit Sub
         End If
-        '
+
+        txtLog.Clear()
+        StatusLabel.Text = "Status: Iniciando..."
+        Application.DoEvents()
+        Me.Cursor = Cursors.WaitCursor
+        linksConcluidos = 0
+        Dim etapaAtual As Integer = 0
+        Dim etapasTotais As Integer = 0
         btnExecutar.Enabled = False
 
         Try
