@@ -11,7 +11,6 @@ Partial Class Form1
         btnAdicionar = New Button()
         btnExecutar = New Button()
         txtLog = New TextBox()
-        lstLinks = New ListBox()
         btLimparLista = New Button()
         progressBarDownload = New ProgressBar()
         CheckBoxAudio = New CheckBox()
@@ -27,6 +26,7 @@ Partial Class Form1
         timerFakeProgress = New Timer(components)
         Button1 = New Button()
         ToolTip1 = New ToolTip(components)
+        lstLink = New ListView()
         StatusStrip1.SuspendLayout()
         MenuStrip1.SuspendLayout()
         SuspendLayout()
@@ -88,18 +88,6 @@ Partial Class Form1
         txtLog.TabIndex = 9
         txtLog.Visible = False
         ' 
-        ' lstLinks
-        ' 
-        lstLinks.BackColor = Color.Black
-        lstLinks.BorderStyle = BorderStyle.None
-        lstLinks.ForeColor = Color.White
-        lstLinks.FormattingEnabled = True
-        lstLinks.ItemHeight = 15
-        lstLinks.Location = New Point(12, 59)
-        lstLinks.Name = "lstLinks"
-        lstLinks.Size = New Size(491, 120)
-        lstLinks.TabIndex = 12
-        ' 
         ' btLimparLista
         ' 
         btLimparLista.BackColor = Color.Orange
@@ -130,7 +118,7 @@ Partial Class Form1
         ' 
         CheckBoxAudio.AutoSize = True
         CheckBoxAudio.ForeColor = Color.White
-        CheckBoxAudio.Location = New Point(12, 185)
+        CheckBoxAudio.Location = New Point(12, 183)
         CheckBoxAudio.Name = "CheckBoxAudio"
         CheckBoxAudio.Size = New Size(100, 19)
         CheckBoxAudio.TabIndex = 15
@@ -143,7 +131,7 @@ Partial Class Form1
         StatusStrip1.Items.AddRange(New ToolStripItem() {StatusLabel})
         StatusStrip1.Location = New Point(0, 458)
         StatusStrip1.Name = "StatusStrip1"
-        StatusStrip1.Size = New Size(516, 22)
+        StatusStrip1.Size = New Size(515, 22)
         StatusStrip1.TabIndex = 16
         StatusStrip1.Text = "StatusStrip1"
         ' 
@@ -174,9 +162,9 @@ Partial Class Form1
         ' 
         chkLegendas.AutoSize = True
         chkLegendas.ForeColor = Color.White
-        chkLegendas.Location = New Point(12, 203)
+        chkLegendas.Location = New Point(12, 201)
         chkLegendas.Name = "chkLegendas"
-        chkLegendas.Size = New Size(107, 19)
+        chkLegendas.Size = New Size(108, 19)
         chkLegendas.TabIndex = 18
         chkLegendas.Text = "Baixar legendas"
         chkLegendas.UseVisualStyleBackColor = True
@@ -187,7 +175,7 @@ Partial Class Form1
         MenuStrip1.Items.AddRange(New ToolStripItem() {ConfoguraçõesToolStripMenuItem})
         MenuStrip1.Location = New Point(0, 0)
         MenuStrip1.Name = "MenuStrip1"
-        MenuStrip1.Size = New Size(516, 24)
+        MenuStrip1.Size = New Size(515, 24)
         MenuStrip1.TabIndex = 19
         MenuStrip1.Text = "MenuStrip1"
         ' 
@@ -252,10 +240,26 @@ Partial Class Form1
         ToolTip1.SetToolTip(Button1, "Abre a pasta de downloads")
         Button1.UseVisualStyleBackColor = False
         ' 
+        ' lstLink
+        ' 
+        lstLink.BackColor = Color.Black
+        lstLink.BorderStyle = BorderStyle.None
+        lstLink.ForeColor = Color.White
+        lstLink.FullRowSelect = True
+        lstLink.HeaderStyle = ColumnHeaderStyle.None
+        lstLink.Location = New Point(12, 59)
+        lstLink.MultiSelect = False
+        lstLink.Name = "lstLink"
+        lstLink.Size = New Size(491, 120)
+        lstLink.TabIndex = 22
+        lstLink.UseCompatibleStateImageBehavior = False
+        lstLink.View = View.Details
+        ' 
         ' Form1
         ' 
         BackColor = Color.FromArgb(CByte(40), CByte(40), CByte(40))
-        ClientSize = New Size(516, 480)
+        ClientSize = New Size(515, 480)
+        Controls.Add(lstLink)
         Controls.Add(Button1)
         Controls.Add(btCancelar)
         Controls.Add(chkLegendas)
@@ -265,7 +269,6 @@ Partial Class Form1
         Controls.Add(CheckBoxAudio)
         Controls.Add(progressBarDownload)
         Controls.Add(btLimparLista)
-        Controls.Add(lstLinks)
         Controls.Add(txtUrl)
         Controls.Add(btnAdicionar)
         Controls.Add(btnExecutar)
@@ -288,7 +291,7 @@ Partial Class Form1
     Private WithEvents btnAdicionar As Button
     Private WithEvents btnExecutar As Button
     Private WithEvents txtLog As TextBox
-    Friend WithEvents lstLinks As ListBox
+
     Private WithEvents btLimparLista As Button
     Friend WithEvents progressBarDownload As ProgressBar
     Friend WithEvents CheckBoxAudio As CheckBox
@@ -304,4 +307,5 @@ Partial Class Form1
     Friend WithEvents timerFakeProgress As Timer
     Friend WithEvents Button1 As Button
     Friend WithEvents ToolTip1 As ToolTip
+    Friend WithEvents lstLink As ListView
 End Class

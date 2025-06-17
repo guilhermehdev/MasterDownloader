@@ -40,7 +40,7 @@ Public Class Form1
 
         Try
             Dim videoData = Await ContarVideosNaPlaylist(link)
-            lstLinks.Items.Add(videoData.Item2)
+            lstLink.Items.Add(videoData.Item2)
             txtLog.AppendText($"📺 Link contém {videoData.Item1} vídeos." & Environment.NewLine)
             StatusLabel.Text = $"Status: {videoData.Item1} vídeos encontrados"
         Catch ex As Exception
@@ -67,7 +67,7 @@ Public Class Form1
         Try
             File.WriteAllText(caminho, String.Empty)
             txtLog.AppendText(Environment.NewLine & "🧹 Arquivo download.txt limpo com sucesso!" & Environment.NewLine)
-            lstLinks.Items.Clear() ' Se estiver usando ListBox para mostrar os links
+            lstLink.Items.Clear() ' Se estiver usando ListBox para mostrar os links
         Catch ex As Exception
             MessageBox.Show("Erro ao limpar o arquivo: " & ex.Message, "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
@@ -146,20 +146,38 @@ Public Class Form1
 
         Return (Math.Max(1, totalVideos), " [" & origem & "] - " & titulo)
     End Function
-
+    Private Function UnescapeUnicode(input As String) As String
+        Return System.Text.RegularExpressions.Regex.Replace(
+        input,
+        "\\u(?<Value>[a-fA-F0-9]{4})",
+        Function(m) ChrW(Convert.ToInt32(m.Groups("Value").Value, 16))
+    )
+    End Function
+    Private Sub AdicionarTituloNaListView(titulo As String, Optional linkOriginal As String = "")
+        Dim item As New ListViewItem(titulo)
+        item.Tag = linkOriginal ' Se quiser guardar o link original escondido
+        item.SubItems.Add("🗑️") ' Adiciona uma ação padrão, pode ser um botão ou texto
+        lstLink.Items.Add(item)
+    End Sub
 
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
-        If File.Exists(downloadFilePath) Then
-            Dim links = File.ReadAllLines(downloadFilePath)
-            For Each link In links
-                Dim videoData = Await ContarVideosNaPlaylist(link)
-                lstLinks.Items.Add(videoData.Item2)
-            Next
-
-        End If
         progressBarDownload.Location = New Point(12, 224)
         Me.Height = 335
         AddHandler timerFakeProgress.Tick, AddressOf timerFakeProgress_Tick
+        lstLink.Columns.Add("Título", 450)
+        lstLink.Columns.Add("Action", 40)
+
+        If File.Exists(downloadFilePath) Then
+            AtualizarStatus("Status: Carregando links...")
+            Dim links = File.ReadAllLines(downloadFilePath)
+            For Each link In links
+                Dim videoData = Await ContarVideosNaPlaylist(link)
+                'lstLink.Items.Add(UnescapeUnicode(videoData.Item2))
+                AdicionarTituloNaListView(UnescapeUnicode(videoData.Item2), link)
+            Next
+            AtualizarStatus("Status: Pronto...")
+        End If
+
 
     End Sub
 
@@ -797,6 +815,38 @@ Public Class Form1
             Process.Start("explorer.exe", Application.StartupPath & "\downloaded")
         End If
 
+    End Sub
+    Private Sub lstLink_MouseClick(sender As Object, e As MouseEventArgs) Handles lstLink.MouseClick
+        Dim info As ListViewHitTestInfo = lstLink.HitTest(e.Location)
+
+        If info.Item IsNot Nothing AndAlso info.SubItem IsNot Nothing Then
+            Dim colunaClicada As Integer = info.Item.SubItems.IndexOf(info.SubItem)
+
+            ' Supondo que a coluna 2 (índice 2) seja a coluna "Ação"
+            If colunaClicada = 1 Then
+                Dim titulo As String = info.Item.Text
+                Dim linkOriginal As String = info.Item.SubItems(1).Text ' Link escondido na coluna 1 (invisível)
+
+                ' Confirma antes de excluir
+                If MessageBox.Show($"Deseja excluir o item: {titulo} ?", "Confirmação", MessageBoxButtons.YesNo, MessageBoxIcon.Question) = DialogResult.Yes Then
+                    lstLink.Items.Remove(info.Item)
+                    txtLog.AppendText($"🗑️ Item excluído: {titulo}" & Environment.NewLine)
+
+                    ' Opcional: Se quiser deletar arquivos físicos relacionados
+                    'Dim pastaDestino = Path.Combine(Application.StartupPath, My.Settings.destFolder)
+                    'Dim arquivos = Directory.GetFiles(pastaDestino, $"*{SanitizeFileName(titulo)}*")
+
+                    'For Each arq In arquivos
+                    '    Try
+                    '        File.Delete(arq)
+                    '        txtLog.AppendText($"🗑️ Arquivo deletado: {Path.GetFileName(arq)}{Environment.NewLine}")
+                    '    Catch ex As Exception
+                    '        txtLog.AppendText($"[ERRO ao excluir {Path.GetFileName(arq)}] {ex.Message}{Environment.NewLine}")
+                    '    End Try
+                    'Next
+                End If
+            End If
+        End If
     End Sub
 
 End Class
