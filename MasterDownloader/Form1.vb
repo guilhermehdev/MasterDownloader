@@ -29,11 +29,8 @@ Public Class Form1
             Application.DoEvents()
             Me.Cursor = Cursors.WaitCursor
             File.AppendAllText(downloadFilePath, link & Environment.NewLine)
-            lstLinks.Items.Add(link)
             txtUrl.Clear()
         End If
-
-
 
         Dim links = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
         If links.Count = 0 Then
@@ -42,9 +39,10 @@ Public Class Form1
         End If
 
         Try
-            Dim total As Integer = Await ContarVideosNaPlaylist(link)
-            txtLog.AppendText($"📺 Link contém {total} vídeos." & Environment.NewLine)
-            StatusLabel.Text = $"Status: {total} vídeos encontrados"
+            Dim videoData = Await ContarVideosNaPlaylist(link)
+            lstLinks.Items.Add(videoData.Item2)
+            txtLog.AppendText($"📺 Link contém {videoData.Item1} vídeos." & Environment.NewLine)
+            StatusLabel.Text = $"Status: {videoData.Item1} vídeos encontrados"
         Catch ex As Exception
             StatusLabel.Text = "Status: Nenhum video encontrado."
             txtLog.AppendText("❌ Falha ao contar vídeos: " & ex.Message & Environment.NewLine)
@@ -75,32 +73,74 @@ Public Class Form1
         End Try
     End Sub
 
-    Private Async Function ContarVideosNaPlaylist(url As String) As Task(Of Integer)
+    'Private Async Function ContarVideosNaPlaylist(url As String) As Task(Of Integer)
+    '    Dim psi As New ProcessStartInfo With {
+    '    .FileName = "app\yt-dlp.exe",
+    '    .Arguments = $"--flat-playlist --print ""%(title)s"" {url}",
+    '    .UseShellExecute = False,
+    '    .RedirectStandardOutput = True,
+    '    .CreateNoWindow = True
+    '}
+
+    '    Dim count As Integer = 0
+    '    Using proc As Process = Process.Start(psi)
+    '        While Not proc.StandardOutput.EndOfStream
+    '            Await proc.StandardOutput.ReadLineAsync()
+    '            count += 1
+    '        End While
+    '        proc.WaitForExit()
+    '    End Using
+
+    '    If count = 0 Then
+    '        ' Se não retornou nada com --flat-playlist, é um vídeo único
+    '        Return 1
+    '    Else
+    '        Return count
+    '    End If
+
+    'End Function
+
+    Private Async Function ContarVideosNaPlaylist(url As String) As Task(Of (Integer, String))
+        Dim ytDlpPath As String = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
         Dim psi As New ProcessStartInfo With {
-        .FileName = "app\yt-dlp.exe",
-        .Arguments = $"--flat-playlist --print ""%(title)s"" {url}",
+        .FileName = ytDlpPath,
+        .Arguments = $"--dump-json --no-warnings --cookies ""cookies.txt"" ""{url}""",
         .UseShellExecute = False,
         .RedirectStandardOutput = True,
+        .RedirectStandardError = True,
         .CreateNoWindow = True
     }
 
-        Dim count As Integer = 0
+        Dim jsonSaida As String = ""
+
         Using proc As Process = Process.Start(psi)
-            While Not proc.StandardOutput.EndOfStream
-                Await proc.StandardOutput.ReadLineAsync()
-                count += 1
-            End While
+            jsonSaida = Await proc.StandardOutput.ReadToEndAsync()
             proc.WaitForExit()
         End Using
 
-        If count = 0 Then
-            ' Se não retornou nada com --flat-playlist, é um vídeo único
-            Return 1
-        Else
-            Return count
-        End If
+        Dim totalVideos As Integer = 1
+        Dim titulo As String = "Título desconhecido"
 
+        Try
+            If jsonSaida.Contains("entries") Then
+                ' É playlist
+                Dim entradas = Regex.Matches(jsonSaida, "\{""id"":")
+                totalVideos = entradas.Count
+            End If
+
+            ' Captura o título da playlist ou do vídeo
+            Dim matchTitulo = Regex.Match(jsonSaida, """title"":\s*""([^""]+)""")
+            If matchTitulo.Success Then
+                titulo = matchTitulo.Groups(1).Value
+            End If
+
+        Catch ex As Exception
+            txtLog.AppendText($"[ERRO JSON] {ex.Message}" & Environment.NewLine)
+        End Try
+
+        Return (Math.Max(1, totalVideos), titulo)
     End Function
+
 
     Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         If File.Exists(downloadFilePath) Then
@@ -228,9 +268,11 @@ Public Class Form1
                     Dim argsVideoStream As New StringBuilder()
                     argsVideoStream.Append($" ""{link}"" ")
                     argsVideoStream.Append("--format best ")
-                    argsVideoStream.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ")
+                    argsVideoStream.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" --live-from-start ")
+                    argsVideoStream.Append("--buffer-size 1M ")
                     argsVideoStream.Append("--ignore-errors ")
                     argsVideoStream.Append("--cookies ""cookies.txt"" ")
+                    'argsVideoStream.Append("--cookies-from-browser chrome ")
                     argsVideoStream.Append("--no-warnings ")
                     If canceladoPeloUsuario Then Exit For
                     Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsVideoStream.ToString())
@@ -251,6 +293,7 @@ Public Class Form1
                         argsPlaylist.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ""{link}"" ")
                         argsPlaylist.Append("--ignore-errors ")
                         argsPlaylist.Append("--cookies ""cookies.txt"" ")
+                        'argsPlaylist.Append("--cookies-from-browser chrome ")
                         argsPlaylist.Append("--no-warnings ")
                         If chkLegendas.Checked Then
                             argsPlaylist.Append("--write-sub --sub-langs ""pt.*"" --sub-format srt --embed-subs ")
@@ -269,6 +312,7 @@ Public Class Form1
                         argsAudio.Append($"--output ""{My.Settings.destFolder}\%(title)s.%(ext)s"" ""{link}"" ")
                         argsAudio.Append("--ignore-errors ")
                         argsAudio.Append("--cookies ""cookies.txt"" ")
+                        ' argsAudio.Append("--cookies-from-browser chrome ")
                         argsAudio.Append("--no-warnings ")
                         If canceladoPeloUsuario Then Exit For
                         Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsAudio.ToString())
@@ -283,6 +327,7 @@ Public Class Form1
                     argsSingleVideo.Append($"--output ""{My.Settings.destFolder}\%(title)s.%(ext)s"" ""{link}"" ")
                     argsSingleVideo.Append("--ignore-errors ")
                     argsSingleVideo.Append("--cookies ""cookies.txt"" ")
+                    ' argsSingleVideo.Append("--cookies-from-browser chrome ")
                     argsSingleVideo.Append("--no-warnings ")
                     If chkLegendas.Checked Then
                         argsSingleVideo.Append("--write-sub --sub-langs ""pt.*"" --sub-format srt --embed-subs ")
