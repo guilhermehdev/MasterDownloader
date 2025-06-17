@@ -120,6 +120,7 @@ Public Class Form1
 
         Dim totalVideos As Integer = 1
         Dim titulo As String = "Título desconhecido"
+        Dim origem As String = ""
 
         Try
             If jsonSaida.Contains("entries") Then
@@ -134,18 +135,27 @@ Public Class Form1
                 titulo = matchTitulo.Groups(1).Value
             End If
 
+            Dim matchSite = Regex.Match(jsonSaida, """extractor_key"":\s*""([^""]+)""")
+            If matchSite.Success Then
+                origem = matchSite.Groups(1).Value
+            End If
+
         Catch ex As Exception
             txtLog.AppendText($"[ERRO JSON] {ex.Message}" & Environment.NewLine)
         End Try
 
-        Return (Math.Max(1, totalVideos), titulo)
+        Return (Math.Max(1, totalVideos), " [" & origem & "] - " & titulo)
     End Function
 
 
-    Private Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
+    Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         If File.Exists(downloadFilePath) Then
             Dim links = File.ReadAllLines(downloadFilePath)
-            lstLinks.Items.AddRange(links)
+            For Each link In links
+                Dim videoData = Await ContarVideosNaPlaylist(link)
+                lstLinks.Items.Add(videoData.Item2)
+            Next
+
         End If
         progressBarDownload.Location = New Point(12, 224)
         Me.Height = 335
