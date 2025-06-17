@@ -22,7 +22,7 @@ Public Class Form1
 
         If link <> "" Then
             If Not File.Exists(downloadFilePath) Then
-                MessageBox.Show("download.txt não encontrado.")
+                MessageBox.Show("arquivo não encontrado.")
                 Return
             End If
             StatusLabel.Text = "Status: Adicionando link..."
@@ -60,45 +60,37 @@ Public Class Form1
             StatusLabel.Text = texto
         End If
     End Sub
-
-
     Private Sub LimparArquivoDownload()
         Dim caminho As String = Path.Combine(Application.StartupPath, "download.txt")
         Try
             File.WriteAllText(caminho, String.Empty)
-            txtLog.AppendText(Environment.NewLine & "🧹 Arquivo download.txt limpo com sucesso!" & Environment.NewLine)
+            txtLog.AppendText(Environment.NewLine & "🧹 Arquivo limpo com sucesso!" & Environment.NewLine)
             lstLink.Items.Clear() ' Se estiver usando ListBox para mostrar os links
         Catch ex As Exception
             MessageBox.Show("Erro ao limpar o arquivo: " & ex.Message, "Erro", MessageBoxButtons.OK, MessageBoxIcon.Error)
         End Try
     End Sub
+    Private Sub RemoverLinkEspecificoDoArquivo(linkParaRemover As String)
+        Try
+            Dim caminho As String = Path.Combine(Application.StartupPath, "download.txt")
 
-    'Private Async Function ContarVideosNaPlaylist(url As String) As Task(Of Integer)
-    '    Dim psi As New ProcessStartInfo With {
-    '    .FileName = "app\yt-dlp.exe",
-    '    .Arguments = $"--flat-playlist --print ""%(title)s"" {url}",
-    '    .UseShellExecute = False,
-    '    .RedirectStandardOutput = True,
-    '    .CreateNoWindow = True
-    '}
+            If File.Exists(caminho) Then
+                ' Lê todas as linhas
+                Dim linhas = File.ReadAllLines(caminho).ToList()
 
-    '    Dim count As Integer = 0
-    '    Using proc As Process = Process.Start(psi)
-    '        While Not proc.StandardOutput.EndOfStream
-    '            Await proc.StandardOutput.ReadLineAsync()
-    '            count += 1
-    '        End While
-    '        proc.WaitForExit()
-    '    End Using
+                ' Remove todas as ocorrências exatas do link
+                Dim novasLinhas = linhas.Where(Function(l) Not l.Trim().Equals(linkParaRemover.Trim(), StringComparison.OrdinalIgnoreCase)).ToList()
 
-    '    If count = 0 Then
-    '        ' Se não retornou nada com --flat-playlist, é um vídeo único
-    '        Return 1
-    '    Else
-    '        Return count
-    '    End If
+                ' Salva de volta no arquivo
+                File.WriteAllLines(caminho, novasLinhas)
 
-    'End Function
+                txtLog.AppendText($"🧹 Link removido: {linkParaRemover}" & Environment.NewLine)
+            End If
+
+        Catch ex As Exception
+            txtLog.AppendText($"[ERRO ao remover link do arquivo] {ex.Message}" & Environment.NewLine)
+        End Try
+    End Sub
 
     Private Async Function ContarVideosNaPlaylist(url As String) As Task(Of (Integer, String))
         Dim ytDlpPath As String = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
@@ -158,6 +150,40 @@ Public Class Form1
         item.Tag = linkOriginal ' Se quiser guardar o link original escondido
         item.SubItems.Add("🗑️") ' Adiciona uma ação padrão, pode ser um botão ou texto
         lstLink.Items.Add(item)
+    End Sub
+
+    Private Sub lstLink_MouseClick(sender As Object, e As MouseEventArgs) Handles lstLink.MouseClick
+        Dim info As ListViewHitTestInfo = lstLink.HitTest(e.Location)
+
+        If info.Item IsNot Nothing AndAlso info.SubItem IsNot Nothing Then
+            Dim colunaClicada As Integer = info.Item.SubItems.IndexOf(info.SubItem)
+
+            ' Supondo que a coluna 2 (índice 2) seja a coluna "Ação"
+            If colunaClicada = 1 Then
+                Dim titulo As String = info.Item.Text
+                Dim linkOriginal As String = info.Item.Tag.ToString() ' Link escondido na coluna 1 (invisível)
+
+                ' Confirma antes de excluir
+                If MessageBox.Show($"Deseja excluir o item: {titulo} ?", "Confirmação", MessageBoxButtons.YesNo, MessageBoxIcon.Question) = DialogResult.Yes Then
+                    lstLink.Items.Remove(info.Item)
+                    RemoverLinkEspecificoDoArquivo(linkOriginal)
+                    txtLog.AppendText($"🗑️ Item excluído: {titulo}" & Environment.NewLine)
+
+                    ' Opcional: Se quiser deletar arquivos físicos relacionados
+                    'Dim pastaDestino = Path.Combine(Application.StartupPath, My.Settings.destFolder)
+                    'Dim arquivos = Directory.GetFiles(pastaDestino, $"*{SanitizeFileName(titulo)}*")
+
+                    'For Each arq In arquivos
+                    '    Try
+                    '        File.Delete(arq)
+                    '        txtLog.AppendText($"🗑️ Arquivo deletado: {Path.GetFileName(arq)}{Environment.NewLine}")
+                    '    Catch ex As Exception
+                    '        txtLog.AppendText($"[ERRO ao excluir {Path.GetFileName(arq)}] {ex.Message}{Environment.NewLine}")
+                    '    End Try
+                    'Next
+                End If
+            End If
+        End If
     End Sub
 
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
@@ -293,10 +319,11 @@ Public Class Form1
 
                 If IsHLS(link) Then
                     timerFakeProgress.Start()
+                    Me.Cursor = Cursors.Default
                     Dim argsVideoStream As New StringBuilder()
                     argsVideoStream.Append($" ""{link}"" ")
                     argsVideoStream.Append("--format best ")
-                    argsVideoStream.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" --live-from-start ")
+                    argsVideoStream.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ")
                     argsVideoStream.Append("--buffer-size 1M ")
                     argsVideoStream.Append("--ignore-errors ")
                     argsVideoStream.Append("--cookies ""cookies.txt"" ")
@@ -369,12 +396,15 @@ Public Class Form1
 
             Next
 
-            ' If linkIsPlaylist Or linkIsOnlyAudio Then
-            txtLog.AppendText(Environment.NewLine & "✅ Arquivos baixados com sucesso!" & Environment.NewLine)
-            OpenFolder()
-            StatusLabel.Text = "Status: Download concluido!"
-            Application.DoEvents()
-            Me.Cursor = Cursors.Default
+            If Not canceladoPeloUsuario Then
+                ' If linkIsPlaylist Or linkIsOnlyAudio Then
+                txtLog.AppendText(Environment.NewLine & "✅ Arquivos baixados com sucesso!" & Environment.NewLine)
+                OpenFolder()
+                StatusLabel.Text = "Status: Download concluido!"
+                Application.DoEvents()
+                Me.Cursor = Cursors.Default
+            End If
+
             'Else
             '    ' If MergeTodosOsVideosEAudios() Then
             '    txtLog.AppendText(Environment.NewLine & "✅ Arquivos baixados com sucesso!" & Environment.NewLine)
@@ -815,38 +845,6 @@ Public Class Form1
             Process.Start("explorer.exe", Application.StartupPath & "\downloaded")
         End If
 
-    End Sub
-    Private Sub lstLink_MouseClick(sender As Object, e As MouseEventArgs) Handles lstLink.MouseClick
-        Dim info As ListViewHitTestInfo = lstLink.HitTest(e.Location)
-
-        If info.Item IsNot Nothing AndAlso info.SubItem IsNot Nothing Then
-            Dim colunaClicada As Integer = info.Item.SubItems.IndexOf(info.SubItem)
-
-            ' Supondo que a coluna 2 (índice 2) seja a coluna "Ação"
-            If colunaClicada = 1 Then
-                Dim titulo As String = info.Item.Text
-                Dim linkOriginal As String = info.Item.SubItems(1).Text ' Link escondido na coluna 1 (invisível)
-
-                ' Confirma antes de excluir
-                If MessageBox.Show($"Deseja excluir o item: {titulo} ?", "Confirmação", MessageBoxButtons.YesNo, MessageBoxIcon.Question) = DialogResult.Yes Then
-                    lstLink.Items.Remove(info.Item)
-                    txtLog.AppendText($"🗑️ Item excluído: {titulo}" & Environment.NewLine)
-
-                    ' Opcional: Se quiser deletar arquivos físicos relacionados
-                    'Dim pastaDestino = Path.Combine(Application.StartupPath, My.Settings.destFolder)
-                    'Dim arquivos = Directory.GetFiles(pastaDestino, $"*{SanitizeFileName(titulo)}*")
-
-                    'For Each arq In arquivos
-                    '    Try
-                    '        File.Delete(arq)
-                    '        txtLog.AppendText($"🗑️ Arquivo deletado: {Path.GetFileName(arq)}{Environment.NewLine}")
-                    '    Catch ex As Exception
-                    '        txtLog.AppendText($"[ERRO ao excluir {Path.GetFileName(arq)}] {ex.Message}{Environment.NewLine}")
-                    '    End Try
-                    'Next
-                End If
-            End If
-        End If
     End Sub
 
 End Class
