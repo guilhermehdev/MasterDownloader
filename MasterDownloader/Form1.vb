@@ -241,6 +241,48 @@ Public Class Form1
 
     End Function
 
+    Private Async Function CarregarLegendasDisponiveis(link As String) As Task
+        Dim psi As New ProcessStartInfo With {
+        .FileName = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe"),
+        .Arguments = $"--list-subs ""{link}"" --cookies ""cookies.txt"" --no-warnings",
+        .UseShellExecute = False,
+        .RedirectStandardOutput = True,
+        .RedirectStandardError = True,
+        .CreateNoWindow = True
+    }
+
+        Using proc As Process = Process.Start(psi)
+            Dim output As String = Await proc.StandardOutput.ReadToEndAsync()
+            Dim errors As String = Await proc.StandardError.ReadToEndAsync()
+            proc.WaitForExit()
+
+            txtLog.AppendText(Environment.NewLine & $"[Legendas disponíveis]{Environment.NewLine}{output}{errors}{Environment.NewLine}")
+
+            Me.Invoke(Sub()
+                          FormLegendas.cmbLegendas.Items.Clear()
+
+                          Dim linhas = output.Split({Environment.NewLine}, StringSplitOptions.RemoveEmptyEntries)
+                          For Each linha In linhas
+                              If linha.Contains("Available subtitles") OrElse linha.StartsWith("Language") Then Continue For
+
+                              ' Exemplo de linha: "en        vtt, ttml"
+                              Dim partes = linha.Split(New Char() {" "c}, StringSplitOptions.RemoveEmptyEntries)
+                              If partes.Length > 0 Then
+                                  FormLegendas.cmbLegendas.Items.Add(partes(0)) ' Adiciona o código da linguagem, tipo "en" ou "pt"
+                              End If
+                          Next
+
+                          If FormLegendas.cmbLegendas.Items.Count > 0 Then
+                              FormLegendas.cmbLegendas.SelectedIndex = 0
+                          Else
+                              FormLegendas.cmbLegendas.Items.Add("Nenhuma legenda disponível")
+                              FormLegendas.cmbLegendas.SelectedIndex = 0
+                          End If
+                      End Sub)
+        End Using
+    End Function
+
+
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         progressBarDownload.Location = New Point(12, 224)
         Me.Height = 335
@@ -436,6 +478,8 @@ Public Class Form1
                             'argsPlaylist.Append("--cookies-from-browser chrome ")
                             argsPlaylist.Append("--no-warnings ")
                             If chkLegendas.Checked Then
+                                Await CarregarLegendasDisponiveis(link)
+                                FormLegendas.ShowDialog()
                                 argsPlaylist.Append("--write-sub --sub-langs ""pt.*"" --sub-format srt --embed-subs ")
                             End If
 

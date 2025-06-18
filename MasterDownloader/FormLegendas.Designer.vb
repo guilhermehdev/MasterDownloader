@@ -1,0 +1,65 @@
+﻿<Global.Microsoft.VisualBasic.CompilerServices.DesignerGenerated()> _
+Partial Class FormLegendas
+    Inherits System.Windows.Forms.Form
+
+    'Descartar substituições de formulário para limpar a lista de componentes.
+    <System.Diagnostics.DebuggerNonUserCode()> _
+    Protected Overrides Sub Dispose(ByVal disposing As Boolean)
+        Try
+            If disposing AndAlso components IsNot Nothing Then
+                components.Dispose()
+            End If
+        Finally
+            MyBase.Dispose(disposing)
+        End Try
+    End Sub
+
+    'Exigido pelo Windows Form Designer
+    Private components As System.ComponentModel.IContainer
+
+    'OBSERVAÇÃO: o procedimento a seguir é exigido pelo Windows Form Designer
+    'Pode ser modificado usando o Windows Form Designer.  
+    'Não o modifique usando o editor de códigos.
+    <System.Diagnostics.DebuggerStepThrough()> _
+    Private Sub InitializeComponent()
+        GroupBox1 = New GroupBox()
+        cmbLegendas = New ComboBox()
+        GroupBox1.SuspendLayout()
+        SuspendLayout()
+        ' 
+        ' GroupBox1
+        ' 
+        GroupBox1.Controls.Add(cmbLegendas)
+        GroupBox1.ForeColor = Color.White
+        GroupBox1.Location = New Point(12, 12)
+        GroupBox1.Name = "GroupBox1"
+        GroupBox1.Size = New Size(154, 63)
+        GroupBox1.TabIndex = 0
+        GroupBox1.TabStop = False
+        GroupBox1.Text = "Legendas disponíveis"
+        ' 
+        ' cmbLegendas
+        ' 
+        cmbLegendas.FormattingEnabled = True
+        cmbLegendas.Location = New Point(15, 22)
+        cmbLegendas.Name = "cmbLegendas"
+        cmbLegendas.Size = New Size(121, 23)
+        cmbLegendas.TabIndex = 0
+        ' 
+        ' FormLegendas
+        ' 
+        AutoScaleDimensions = New SizeF(7F, 15F)
+        AutoScaleMode = AutoScaleMode.Font
+        BackColor = Color.FromArgb(CByte(40), CByte(40), CByte(40))
+        ClientSize = New Size(180, 89)
+        Controls.Add(GroupBox1)
+        FormBorderStyle = FormBorderStyle.None
+        Name = "FormLegendas"
+        Text = "FormLegendas"
+        GroupBox1.ResumeLayout(False)
+        ResumeLayout(False)
+    End Sub
+
+    Friend WithEvents GroupBox1 As GroupBox
+    Friend WithEvents cmbLegendas As ComboBox
+End Class
