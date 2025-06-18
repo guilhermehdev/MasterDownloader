@@ -7,6 +7,7 @@ Imports System.Threading.Tasks
 
 Public Class Form1
     Private downloadFilePath As String = Application.StartupPath & "\download.txt"
+    Private pastaDestino As String = IO.Path.Combine(Application.StartupPath, My.Settings.destFolder)
     Private batFilePath As String = Application.StartupPath & "\run.bat"
     Private totalLinks As Integer = 0
     Private linksConcluidos As Integer = 0
@@ -40,7 +41,8 @@ Public Class Form1
 
         Try
             Dim videoData = Await ContarVideosNaPlaylist(link)
-            lstLink.Items.Add(videoData.Item2)
+            AdicionarTituloNaListView(UnescapeUnicode(videoData.Item2), link)
+            ' lstLink.Items.Add(videoData.Item2)
             txtLog.AppendText($"📺 Link contém {videoData.Item1} vídeos." & Environment.NewLine)
             StatusLabel.Text = $"Status: {videoData.Item1} vídeos encontrados"
         Catch ex As Exception
@@ -49,6 +51,14 @@ Public Class Form1
         End Try
         Me.Cursor = Cursors.Default
 
+    End Sub
+    Private Sub MarcarItemComoOK(linkOriginal As String)
+        For Each item As ListViewItem In lstLink.Items
+            If item.Tag IsNot Nothing AndAlso item.Tag.ToString().Equals(linkOriginal, StringComparison.OrdinalIgnoreCase) Then
+                item.SubItems(1).Text = "OK"
+                Exit For
+            End If
+        Next
     End Sub
 
     Private Sub AtualizarStatus(texto As String)
@@ -147,8 +157,9 @@ Public Class Form1
     End Function
     Private Sub AdicionarTituloNaListView(titulo As String, Optional linkOriginal As String = "")
         Dim item As New ListViewItem(titulo)
-        item.Tag = linkOriginal ' Se quiser guardar o link original escondido
-        item.SubItems.Add("🗑️") ' Adiciona uma ação padrão, pode ser um botão ou texto
+        item.Tag = linkOriginal
+        item.SubItems.Add("Em fila")
+        item.SubItems.Add("🗑️")
         lstLink.Items.Add(item)
     End Sub
 
@@ -185,32 +196,71 @@ Public Class Form1
             End If
         End If
     End Sub
+    Private Function LimparPrefixoExtractor(titulo As String) As String
+        If titulo.StartsWith("[") Then
+            Dim fechamento = titulo.IndexOf("]")
+            If fechamento > 0 AndAlso fechamento < titulo.Length - 1 Then
+                Return titulo.Substring(fechamento + 1).Trim()
+            End If
+        End If
+        Return titulo
+    End Function
+
+    Private Async Function VerificarAtualizacaoYTDLP() As Task
+        AtualizarStatus("Status: Verificando atualizações...")
+        Dim psi As New ProcessStartInfo With {
+        .FileName = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe"),
+        .Arguments = "--update",
+        .UseShellExecute = False,
+        .RedirectStandardOutput = True,
+        .RedirectStandardError = True,
+        .CreateNoWindow = True
+    }
+
+        Using proc As Process = Process.Start(psi)
+            Dim output As String = Await proc.StandardOutput.ReadToEndAsync()
+            Dim errors As String = Await proc.StandardError.ReadToEndAsync()
+            txtLog.AppendText($"[Verificação de atualização yt-dlp]{Environment.NewLine}{output}{errors}{Environment.NewLine}")
+            AtualizarStatus($"Status: {output}")
+            proc.WaitForExit()
+        End Using
+    End Function
 
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         progressBarDownload.Location = New Point(12, 224)
         Me.Height = 335
         AddHandler timerFakeProgress.Tick, AddressOf timerFakeProgress_Tick
-        lstLink.Columns.Add("Título", 450)
+        lstLink.Columns.Add("Título", 400)
+        lstLink.Columns.Add("Status", 50)
         lstLink.Columns.Add("Action", 40)
 
         If File.Exists(downloadFilePath) Then
-            AtualizarStatus("Status: Carregando links...")
+            AtualizarStatus("Status: Processando links...")
             Dim links = File.ReadAllLines(downloadFilePath)
             For Each link In links
                 Dim videoData = Await ContarVideosNaPlaylist(link)
-                'lstLink.Items.Add(UnescapeUnicode(videoData.Item2))
                 AdicionarTituloNaListView(UnescapeUnicode(videoData.Item2), link)
+            Next
+
+            For Each item As ListViewItem In lstLink.Items
+                Dim padrao As String = "\[.*?\]"
+                Dim titulo As String = Regex.Replace(item.Text, padrao, "").Replace("-", "").Trim
+                Dim nomeSanitizado As String = UnescapeUnicode(titulo)
+                Dim arquivos = Directory.GetFiles(pastaDestino, $"*{nomeSanitizado}*.mp4")
+
+                If arquivos.Length > 0 Then
+                    item.SubItems(1).Text = "OK"
+                Else
+                    item.SubItems(1).Text = "Em fila"
+                End If
             Next
             AtualizarStatus("Status: Pronto...")
         End If
 
-
     End Sub
-
     Private Sub BtLimparLista_Click(sender As Object, e As EventArgs) Handles btLimparLista.Click
         LimparArquivoDownload()
     End Sub
-
     Private Function IsHLS(link As String) As Boolean
         Try
 
@@ -269,8 +319,6 @@ Public Class Form1
 
         Return False
     End Function
-
-
     Private Async Sub BtnExecutar_Click(sender As Object, e As EventArgs) Handles btnExecutar.Click
 
         Dim linksList As New List(Of String)()
@@ -317,9 +365,13 @@ Public Class Form1
             For Each link In linksList
                 If canceladoPeloUsuario Then Exit For
 
+                Dim linkOriginal As String = link
+
                 If IsHLS(link) Then
                     timerFakeProgress.Start()
                     Me.Cursor = Cursors.Default
+                    chkLegendas.Enabled = False
+                    CheckBoxAudio.Enabled = False
                     Dim argsVideoStream As New StringBuilder()
                     argsVideoStream.Append($" ""{link}"" ")
                     argsVideoStream.Append("--format best ")
@@ -330,13 +382,13 @@ Public Class Form1
                     'argsVideoStream.Append("--cookies-from-browser chrome ")
                     argsVideoStream.Append("--no-warnings ")
                     If canceladoPeloUsuario Then Exit For
-                    Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsVideoStream.ToString())
+                    If Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsVideoStream.ToString()) Then
+                        etapaAtual += 1
+                        MarcarItemComoOK(linkOriginal)
+                    End If
 
-                    etapaAtual += 1
-
-                    chkLegendas.Enabled = False ' Desmarca legendas para HLS, pois não são suportadas
-                    CheckBoxAudio.Enabled = False ' Desmarca áudio para HLS, pois não é suportado
                     Continue For
+
                 Else
                     chkLegendas.Enabled = True
                     CheckBoxAudio.Enabled = True
@@ -354,10 +406,13 @@ Public Class Form1
                             argsPlaylist.Append("--write-sub --sub-langs ""pt.*"" --sub-format srt --embed-subs ")
                         End If
                         If canceladoPeloUsuario Then Exit For
-                        Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsPlaylist.ToString())
+                        If Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsPlaylist.ToString()) Then
+                            etapaAtual += 1
+                            MarcarItemComoOK(linkOriginal)
+                        End If
 
-                        etapaAtual += 1
                         Continue For
+
                     End If
 
                     If CheckBoxAudio.Checked Then
@@ -370,10 +425,13 @@ Public Class Form1
                         ' argsAudio.Append("--cookies-from-browser chrome ")
                         argsAudio.Append("--no-warnings ")
                         If canceladoPeloUsuario Then Exit For
-                        Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsAudio.ToString())
+                        If Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsAudio.ToString()) Then
+                            MarcarItemComoOK(linkOriginal)
+                            etapaAtual += 1
+                        End If
 
-                        etapaAtual += 1
                         Continue For
+
                     End If
 
                     Dim argsSingleVideo As New StringBuilder()
@@ -388,9 +446,10 @@ Public Class Form1
                         argsSingleVideo.Append("--write-sub --sub-langs ""pt.*"" --sub-format srt --embed-subs ")
                     End If
                     If canceladoPeloUsuario Then Exit For
-                    Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsSingleVideo.ToString())
-
-                    etapaAtual += 1
+                    If Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsSingleVideo.ToString()) Then
+                        MarcarItemComoOK(linkOriginal)
+                        etapaAtual += 1
+                    End If
 
                 End If
 
@@ -404,21 +463,6 @@ Public Class Form1
                 Application.DoEvents()
                 Me.Cursor = Cursors.Default
             End If
-
-            'Else
-            '    ' If MergeTodosOsVideosEAudios() Then
-            '    txtLog.AppendText(Environment.NewLine & "✅ Arquivos baixados com sucesso!" & Environment.NewLine)
-            '        OpenFolder()
-            '        StatusLabel.Text = "Status: Download concluido!"
-            '        Application.DoEvents()
-            '        Me.Cursor = Cursors.Default
-
-            'Else
-            '    txtLog.AppendText(Environment.NewLine & "❌ O processo foi encerrado com erros." & Environment.NewLine)
-            '    StatusLabel.Text = "Status: Falha no download"
-            '    Application.DoEvents()
-            'End If
-            ' End If
 
         Catch ex As Exception
             txtLog.AppendText(Environment.NewLine & $"[ERRO INESPERADO] {ex.Message}")
@@ -505,6 +549,10 @@ Public Class Form1
                                                                   End Sub)
 
                                                         AtualizarStatus("Status: Download em andamento...")
+                                                        Me.Invoke(Sub()
+                                                                      Me.Cursor = Cursors.Default
+                                                                      txtLog.Cursor = Cursors.Default
+                                                                  End Sub)
                                                     End If
 
                                                 End If
@@ -549,10 +597,6 @@ Public Class Form1
                                                                      AtualizarStatus($"Status: Gravando stream HLS... Tempo: {tempoTexto} | Tamanho atual: {tamanho}")
                                                                  End Sub)
 
-                                                       ' Qualquer outro log normal (se quiser, pode exibir ou simplesmente ignorar)
-                                                   Else
-                                                       ' Descomente se quiser ver o resto:
-                                                       ' Me.Invoke(Sub() txtLog.AppendText(ev.Data & Environment.NewLine))
                                                    End If
                                                End If
                                            End Sub
@@ -585,8 +629,6 @@ Public Class Form1
         End Try
 
         Await tcs.Task
-
-        ' Combinação de ExitCode + análise de stderr
         Dim sucessoFinal As Boolean = (exitCode = 0 AndAlso Not hasErrors)
 
         Return sucessoFinal
@@ -683,8 +725,6 @@ Public Class Form1
     End Function
 
     Private Sub OpenFolder()
-        Dim pastaDestino As String = IO.Path.Combine(Application.StartupPath, My.Settings.destFolder)
-        ' Abrir a pasta se ela existir e conter arquivos
         If IO.Directory.Exists(pastaDestino) AndAlso IO.Directory.EnumerateFiles(pastaDestino).Any() Then
             Process.Start("explorer.exe", pastaDestino)
         Else
@@ -720,7 +760,6 @@ Public Class Form1
     End Sub
 
     Private Sub btCancelar_Click(sender As Object, e As EventArgs) Handles btCancelar.Click
-        Dim pastaDestino = Path.Combine(Application.StartupPath, My.Settings.destFolder)
         canceladoPeloUsuario = True
 
         Task.Run(Sub()
@@ -838,13 +877,18 @@ Public Class Form1
         End If
     End Sub
     Private Sub Button1_Click(sender As Object, e As EventArgs) Handles Button1.Click
-        Dim pastaDestino As String = IO.Path.Combine(Application.StartupPath, My.Settings.destFolder)
         If IO.Directory.Exists(pastaDestino) Then
             Process.Start("explorer.exe", pastaDestino)
         Else
             Process.Start("explorer.exe", Application.StartupPath & "\downloaded")
         End If
 
+    End Sub
+    Private Sub Form1_Activated(sender As Object, e As EventArgs) Handles MyBase.Activated
+        txtUrl.Focus()
+    End Sub
+    Private Async Sub VerificarAtualizaçõesToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles VerificarAtualizaçõesToolStripMenuItem.Click
+        Await VerificarAtualizacaoYTDLP()
     End Sub
 
 End Class

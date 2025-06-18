@@ -22,6 +22,7 @@ Partial Class Form1
         ConfoguraçõesToolStripMenuItem = New ToolStripMenuItem()
         ImportarCookiesPrivadosToolStripMenuItem = New ToolStripMenuItem()
         AlterarPastaDestinoToolStripMenuItem = New ToolStripMenuItem()
+        VerificarAtualizaçõesToolStripMenuItem = New ToolStripMenuItem()
         btCancelar = New Button()
         timerFakeProgress = New Timer(components)
         Button1 = New Button()
@@ -182,7 +183,7 @@ Partial Class Form1
         ' ConfoguraçõesToolStripMenuItem
         ' 
         ConfoguraçõesToolStripMenuItem.BackColor = Color.FromArgb(CByte(40), CByte(40), CByte(40))
-        ConfoguraçõesToolStripMenuItem.DropDownItems.AddRange(New ToolStripItem() {ImportarCookiesPrivadosToolStripMenuItem, AlterarPastaDestinoToolStripMenuItem})
+        ConfoguraçõesToolStripMenuItem.DropDownItems.AddRange(New ToolStripItem() {ImportarCookiesPrivadosToolStripMenuItem, AlterarPastaDestinoToolStripMenuItem, VerificarAtualizaçõesToolStripMenuItem})
         ConfoguraçõesToolStripMenuItem.ForeColor = Color.White
         ConfoguraçõesToolStripMenuItem.Name = "ConfoguraçõesToolStripMenuItem"
         ConfoguraçõesToolStripMenuItem.Size = New Size(96, 20)
@@ -203,6 +204,14 @@ Partial Class Form1
         AlterarPastaDestinoToolStripMenuItem.Name = "AlterarPastaDestinoToolStripMenuItem"
         AlterarPastaDestinoToolStripMenuItem.Size = New Size(211, 22)
         AlterarPastaDestinoToolStripMenuItem.Text = "Alterar pasta destino"
+        ' 
+        ' VerificarAtualizaçõesToolStripMenuItem
+        ' 
+        VerificarAtualizaçõesToolStripMenuItem.BackColor = Color.FromArgb(CByte(40), CByte(40), CByte(40))
+        VerificarAtualizaçõesToolStripMenuItem.ForeColor = Color.White
+        VerificarAtualizaçõesToolStripMenuItem.Name = "VerificarAtualizaçõesToolStripMenuItem"
+        VerificarAtualizaçõesToolStripMenuItem.Size = New Size(211, 22)
+        VerificarAtualizaçõesToolStripMenuItem.Text = "Verificar atualizações"
         ' 
         ' btCancelar
         ' 
@@ -308,4 +317,5 @@ Partial Class Form1
     Friend WithEvents Button1 As Button
     Friend WithEvents ToolTip1 As ToolTip
     Friend WithEvents lstLink As ListView
+    Friend WithEvents VerificarAtualizaçõesToolStripMenuItem As ToolStripMenuItem
 End Class
