@@ -66,16 +66,17 @@ Partial Class Form1
         ' btnExecutar
         ' 
         btnExecutar.BackColor = Color.YellowGreen
+        btnExecutar.BackgroundImage = CType(resources.GetObject("btnExecutar.BackgroundImage"), Image)
+        btnExecutar.BackgroundImageLayout = ImageLayout.Center
         btnExecutar.Cursor = Cursors.Hand
         btnExecutar.FlatAppearance.BorderColor = Color.Green
         btnExecutar.FlatAppearance.MouseOverBackColor = Color.Green
         btnExecutar.FlatStyle = FlatStyle.Flat
         btnExecutar.ForeColor = Color.White
-        btnExecutar.Location = New Point(172, 186)
+        btnExecutar.Location = New Point(205, 186)
         btnExecutar.Name = "btnExecutar"
         btnExecutar.Size = New Size(78, 30)
         btnExecutar.TabIndex = 3
-        btnExecutar.Text = "Download"
         ToolTip1.SetToolTip(btnExecutar, "Inicia o download")
         btnExecutar.UseVisualStyleBackColor = False
         ' 
@@ -96,16 +97,17 @@ Partial Class Form1
         ' btLimparLista
         ' 
         btLimparLista.BackColor = Color.Orange
+        btLimparLista.BackgroundImage = CType(resources.GetObject("btLimparLista.BackgroundImage"), Image)
+        btLimparLista.BackgroundImageLayout = ImageLayout.Center
         btLimparLista.Cursor = Cursors.Hand
         btLimparLista.FlatAppearance.BorderColor = Color.DarkOrange
         btLimparLista.FlatAppearance.MouseOverBackColor = Color.DarkOrange
         btLimparLista.FlatStyle = FlatStyle.Flat
         btLimparLista.ForeColor = Color.White
-        btLimparLista.Location = New Point(322, 186)
+        btLimparLista.Location = New Point(355, 186)
         btLimparLista.Name = "btLimparLista"
         btLimparLista.Size = New Size(60, 30)
         btLimparLista.TabIndex = 13
-        btLimparLista.Text = "Limpar "
         ToolTip1.SetToolTip(btLimparLista, "Esvazia a lista de links")
         btLimparLista.UseVisualStyleBackColor = False
         ' 
@@ -123,11 +125,11 @@ Partial Class Form1
         ' 
         CheckBoxAudio.AutoSize = True
         CheckBoxAudio.ForeColor = Color.White
-        CheckBoxAudio.Location = New Point(21, 191)
+        CheckBoxAudio.Location = New Point(13, 191)
         CheckBoxAudio.Name = "CheckBoxAudio"
-        CheckBoxAudio.Size = New Size(58, 19)
+        CheckBoxAudio.Size = New Size(106, 19)
         CheckBoxAudio.TabIndex = 15
-        CheckBoxAudio.Text = "Áudio"
+        CheckBoxAudio.Text = "Somente áudio"
         CheckBoxAudio.UseVisualStyleBackColor = True
         ' 
         ' StatusStrip1
@@ -155,11 +157,11 @@ Partial Class Form1
         btLog.FlatAppearance.MouseOverBackColor = Color.LightGray
         btLog.FlatStyle = FlatStyle.Flat
         btLog.ForeColor = Color.Black
-        btLog.Location = New Point(388, 186)
+        btLog.Location = New Point(421, 186)
         btLog.Name = "btLog"
-        btLog.Size = New Size(80, 30)
+        btLog.Size = New Size(47, 30)
         btLog.TabIndex = 17
-        btLog.Text = "Exibir Log"
+        btLog.Text = "Log"
         ToolTip1.SetToolTip(btLog, "Log de mensagens do sistema")
         btLog.UseVisualStyleBackColor = False
         ' 
@@ -167,7 +169,7 @@ Partial Class Form1
         ' 
         chkLegendas.AutoSize = True
         chkLegendas.ForeColor = Color.White
-        chkLegendas.Location = New Point(85, 191)
+        chkLegendas.Location = New Point(125, 191)
         chkLegendas.Name = "chkLegendas"
         chkLegendas.Size = New Size(76, 19)
         chkLegendas.TabIndex = 18
@@ -220,17 +222,18 @@ Partial Class Form1
         ' btCancelar
         ' 
         btCancelar.BackColor = Color.Firebrick
+        btCancelar.BackgroundImage = CType(resources.GetObject("btCancelar.BackgroundImage"), Image)
+        btCancelar.BackgroundImageLayout = ImageLayout.Center
         btCancelar.Cursor = Cursors.Hand
         btCancelar.Enabled = False
         btCancelar.FlatAppearance.BorderColor = Color.DarkRed
         btCancelar.FlatAppearance.MouseOverBackColor = Color.DarkRed
         btCancelar.FlatStyle = FlatStyle.Flat
         btCancelar.ForeColor = Color.White
-        btCancelar.Location = New Point(256, 186)
+        btCancelar.Location = New Point(289, 186)
         btCancelar.Name = "btCancelar"
         btCancelar.Size = New Size(60, 30)
         btCancelar.TabIndex = 20
-        btCancelar.Text = "Parar"
         ToolTip1.SetToolTip(btCancelar, "Para todos os downloads")
         btCancelar.UseVisualStyleBackColor = False
         ' 

@@ -5,6 +5,7 @@ Imports System.Security.Policy
 Imports System.Text
 Imports System.Text.RegularExpressions
 Imports System.Threading.Tasks
+Imports System.Windows.Forms.LinkLabel
 
 Public Class Form1
     Private downloadFilePath As String = Application.StartupPath & "\download.txt"
@@ -336,6 +337,20 @@ Public Class Form1
 
         Return False
     End Function
+
+    Private Function onlyAudio(link)
+        Dim argsAudio As New StringBuilder()
+        argsAudio.Append("--extract-audio --audio-format mp3 ")
+        argsAudio.Append("--format bestaudio/best ")
+        argsAudio.Append($"--output ""{My.Settings.destFolder}\%(title)s.%(ext)s"" ""{link}"" ")
+        argsAudio.Append("--ignore-errors ")
+        argsAudio.Append("--cookies ""cookies.txt"" ")
+        ' argsAudio.Append("--cookies-from-browser chrome ")
+        argsAudio.Append("--no-warnings ")
+
+        Return argsAudio
+
+    End Function
     Private Async Sub BtnExecutar_Click(sender As Object, e As EventArgs) Handles btnExecutar.Click
 
         Dim linksList As New List(Of String)()
@@ -362,8 +377,6 @@ Public Class Form1
             btCancelar.Enabled = True
             canceladoPeloUsuario = False
             progressoAtualLink = 0
-
-
             ' Calcula o total de etapas
             For Each link In linksList
                 If IsHLS(link) OrElse IsPlaylist(link) Then
@@ -412,16 +425,22 @@ Public Class Form1
                     Dim argsPlaylist As New StringBuilder()
 
                     If IsPlaylist(link) Then
-                        argsPlaylist.Append("--extractor-args ""youtubetab:skip=authcheck"" ")
-                        argsPlaylist.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a] ")
-                        argsPlaylist.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ""{link}"" ")
-                        argsPlaylist.Append("--ignore-errors ")
-                        argsPlaylist.Append("--cookies ""cookies.txt"" ")
-                        'argsPlaylist.Append("--cookies-from-browser chrome ")
-                        argsPlaylist.Append("--no-warnings ")
-                        If chkLegendas.Checked Then
-                            argsPlaylist.Append("--write-sub --sub-langs ""pt.*"" --sub-format srt --embed-subs ")
+                        If CheckBoxAudio.Checked Then
+                            argsPlaylist = onlyAudio(link)
+                        Else
+                            argsPlaylist.Append("--extractor-args ""youtubetab:skip=authcheck"" ")
+                            argsPlaylist.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a] ")
+                            argsPlaylist.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ""{link}"" ")
+                            argsPlaylist.Append("--ignore-errors ")
+                            argsPlaylist.Append("--cookies ""cookies.txt"" ")
+                            'argsPlaylist.Append("--cookies-from-browser chrome ")
+                            argsPlaylist.Append("--no-warnings ")
+                            If chkLegendas.Checked Then
+                                argsPlaylist.Append("--write-sub --sub-langs ""pt.*"" --sub-format srt --embed-subs ")
+                            End If
+
                         End If
+
                         If canceladoPeloUsuario Then Exit For
                         If Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsPlaylist.ToString()) Then
                             etapaAtual += 1
@@ -433,16 +452,9 @@ Public Class Form1
                     End If
 
                     If CheckBoxAudio.Checked Then
-                        Dim argsAudio As New StringBuilder()
-                        argsAudio.Append("--extract-audio --audio-format mp3 ")
-                        argsAudio.Append("--format bestaudio/best ")
-                        argsAudio.Append($"--output ""{My.Settings.destFolder}\%(title)s.%(ext)s"" ""{link}"" ")
-                        argsAudio.Append("--ignore-errors ")
-                        argsAudio.Append("--cookies ""cookies.txt"" ")
-                        ' argsAudio.Append("--cookies-from-browser chrome ")
-                        argsAudio.Append("--no-warnings ")
+                      
                         If canceladoPeloUsuario Then Exit For
-                        If Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsAudio.ToString()) Then
+                        If Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, onlyAudio(link)) Then
                             MarcarItemComoOK(linkOriginal)
                             etapaAtual += 1
                         End If
@@ -751,7 +763,6 @@ Public Class Form1
 
     Private Sub BtLog_Click(sender As Object, e As EventArgs) Handles btLog.Click
         If txtLog.Visible Then
-            btLog.Text = "Exibir Log"
             txtLog.Visible = False
             progressBarDownload.Location = New Point(12, 224)
             Height = 335
@@ -760,7 +771,6 @@ Public Class Form1
             txtLog.Location = New Point(12, 222)
             progressBarDownload.Location = New Point(12, 407)
             Height = 520
-            btLog.Text = "Ocultar Log"
         End If
 
     End Sub
