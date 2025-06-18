@@ -260,7 +260,10 @@ Public Class Form1
                 Dim padrao As String = "\[.*?\]"
                 Dim titulo As String = Regex.Replace(item.Text, padrao, "").Replace("-", "").Trim
                 Dim nomeSanitizado As String = UnescapeUnicode(titulo)
-                Dim arquivos = Directory.GetFiles(pastaDestino, $"*{nomeSanitizado}*.mp4")
+                Dim extensoes = New String() {".mp4", ".mp3"}
+                Dim arquivos = Directory.GetFiles(pastaDestino).
+               Where(Function(f) extensoes.Any(Function(ext) f.EndsWith(ext, StringComparison.OrdinalIgnoreCase)) AndAlso f.Contains(nomeSanitizado)).
+               ToArray()
 
                 If arquivos.Length > 0 Then
                     item.SubItems(1).Text = "OK"

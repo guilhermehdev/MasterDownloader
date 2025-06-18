@@ -7,6 +7,7 @@ Partial Class Form1
     <System.Diagnostics.DebuggerStepThrough()>
     Private Sub InitializeComponent()
         components = New ComponentModel.Container()
+        Dim resources As System.ComponentModel.ComponentResourceManager = New System.ComponentModel.ComponentResourceManager(GetType(Form1))
         txtUrl = New TextBox()
         btnAdicionar = New Button()
         btnExecutar = New Button()
@@ -40,22 +41,25 @@ Partial Class Form1
         txtUrl.Location = New Point(12, 30)
         txtUrl.Name = "txtUrl"
         txtUrl.PlaceholderText = "URL do vídeo ou playlist"
-        txtUrl.Size = New Size(440, 23)
+        txtUrl.Size = New Size(456, 23)
         txtUrl.TabIndex = 0
         ' 
         ' btnAdicionar
         ' 
         btnAdicionar.BackColor = Color.DeepSkyBlue
+        btnAdicionar.BackgroundImage = CType(resources.GetObject("btnAdicionar.BackgroundImage"), Image)
+        btnAdicionar.BackgroundImageLayout = ImageLayout.Center
         btnAdicionar.Cursor = Cursors.Hand
         btnAdicionar.FlatAppearance.BorderColor = Color.SteelBlue
+        btnAdicionar.FlatAppearance.BorderSize = 0
         btnAdicionar.FlatAppearance.MouseOverBackColor = Color.SteelBlue
         btnAdicionar.FlatStyle = FlatStyle.Flat
+        btnAdicionar.Font = New Font("Segoe UI", 13F, FontStyle.Bold, GraphicsUnit.World)
         btnAdicionar.ForeColor = Color.White
-        btnAdicionar.Location = New Point(458, 30)
+        btnAdicionar.Location = New Point(474, 30)
         btnAdicionar.Name = "btnAdicionar"
-        btnAdicionar.Size = New Size(45, 23)
-        btnAdicionar.TabIndex = 2
-        btnAdicionar.Text = "Add"
+        btnAdicionar.Size = New Size(29, 23)
+        btnAdicionar.TabIndex = 1
         ToolTip1.SetToolTip(btnAdicionar, "Adiciona à fila e valida o link")
         btnAdicionar.UseVisualStyleBackColor = False
         ' 
@@ -67,9 +71,9 @@ Partial Class Form1
         btnExecutar.FlatAppearance.MouseOverBackColor = Color.Green
         btnExecutar.FlatStyle = FlatStyle.Flat
         btnExecutar.ForeColor = Color.White
-        btnExecutar.Location = New Point(207, 187)
+        btnExecutar.Location = New Point(172, 186)
         btnExecutar.Name = "btnExecutar"
-        btnExecutar.Size = New Size(113, 30)
+        btnExecutar.Size = New Size(78, 30)
         btnExecutar.TabIndex = 3
         btnExecutar.Text = "Download"
         ToolTip1.SetToolTip(btnExecutar, "Inicia o download")
@@ -97,7 +101,7 @@ Partial Class Form1
         btLimparLista.FlatAppearance.MouseOverBackColor = Color.DarkOrange
         btLimparLista.FlatStyle = FlatStyle.Flat
         btLimparLista.ForeColor = Color.White
-        btLimparLista.Location = New Point(392, 187)
+        btLimparLista.Location = New Point(322, 186)
         btLimparLista.Name = "btLimparLista"
         btLimparLista.Size = New Size(60, 30)
         btLimparLista.TabIndex = 13
@@ -119,11 +123,11 @@ Partial Class Form1
         ' 
         CheckBoxAudio.AutoSize = True
         CheckBoxAudio.ForeColor = Color.White
-        CheckBoxAudio.Location = New Point(12, 183)
+        CheckBoxAudio.Location = New Point(21, 191)
         CheckBoxAudio.Name = "CheckBoxAudio"
-        CheckBoxAudio.Size = New Size(100, 19)
+        CheckBoxAudio.Size = New Size(58, 19)
         CheckBoxAudio.TabIndex = 15
-        CheckBoxAudio.Text = "Somente mp3"
+        CheckBoxAudio.Text = "Áudio"
         CheckBoxAudio.UseVisualStyleBackColor = True
         ' 
         ' StatusStrip1
@@ -151,7 +155,7 @@ Partial Class Form1
         btLog.FlatAppearance.MouseOverBackColor = Color.LightGray
         btLog.FlatStyle = FlatStyle.Flat
         btLog.ForeColor = Color.Black
-        btLog.Location = New Point(121, 187)
+        btLog.Location = New Point(388, 186)
         btLog.Name = "btLog"
         btLog.Size = New Size(80, 30)
         btLog.TabIndex = 17
@@ -163,11 +167,11 @@ Partial Class Form1
         ' 
         chkLegendas.AutoSize = True
         chkLegendas.ForeColor = Color.White
-        chkLegendas.Location = New Point(12, 201)
+        chkLegendas.Location = New Point(85, 191)
         chkLegendas.Name = "chkLegendas"
-        chkLegendas.Size = New Size(108, 19)
+        chkLegendas.Size = New Size(76, 19)
         chkLegendas.TabIndex = 18
-        chkLegendas.Text = "Baixar legendas"
+        chkLegendas.Text = "Legendas"
         chkLegendas.UseVisualStyleBackColor = True
         ' 
         ' MenuStrip1
@@ -222,7 +226,7 @@ Partial Class Form1
         btCancelar.FlatAppearance.MouseOverBackColor = Color.DarkRed
         btCancelar.FlatStyle = FlatStyle.Flat
         btCancelar.ForeColor = Color.White
-        btCancelar.Location = New Point(326, 187)
+        btCancelar.Location = New Point(256, 186)
         btCancelar.Name = "btCancelar"
         btCancelar.Size = New Size(60, 30)
         btCancelar.TabIndex = 20
@@ -241,9 +245,9 @@ Partial Class Form1
         Button1.FlatAppearance.MouseOverBackColor = Color.LightGray
         Button1.FlatStyle = FlatStyle.Flat
         Button1.ForeColor = Color.Black
-        Button1.Location = New Point(458, 187)
+        Button1.Location = New Point(474, 186)
         Button1.Name = "Button1"
-        Button1.Size = New Size(45, 30)
+        Button1.Size = New Size(29, 30)
         Button1.TabIndex = 21
         Button1.Text = "..."
         ToolTip1.SetToolTip(Button1, "Abre a pasta de downloads")
