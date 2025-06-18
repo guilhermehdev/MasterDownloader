@@ -1,5 +1,6 @@
 ﻿Imports System.Diagnostics
 Imports System.IO
+Imports System.Runtime.InteropServices.JavaScript.JSType
 Imports System.Security.Policy
 Imports System.Text
 Imports System.Text.RegularExpressions
@@ -170,7 +171,7 @@ Public Class Form1
             Dim colunaClicada As Integer = info.Item.SubItems.IndexOf(info.SubItem)
 
             ' Supondo que a coluna 2 (índice 2) seja a coluna "Ação"
-            If colunaClicada = 1 Then
+            If colunaClicada = 2 Then
                 Dim titulo As String = info.Item.Text
                 Dim linkOriginal As String = info.Item.Tag.ToString() ' Link escondido na coluna 1 (invisível)
 
@@ -216,14 +217,27 @@ Public Class Form1
         .RedirectStandardError = True,
         .CreateNoWindow = True
     }
+        Dim output As String
+        Dim errors As String
 
         Using proc As Process = Process.Start(psi)
-            Dim output As String = Await proc.StandardOutput.ReadToEndAsync()
-            Dim errors As String = Await proc.StandardError.ReadToEndAsync()
+            output = Await proc.StandardOutput.ReadToEndAsync()
+            errors = Await proc.StandardError.ReadToEndAsync()
             txtLog.AppendText($"[Verificação de atualização yt-dlp]{Environment.NewLine}{output}{errors}{Environment.NewLine}")
-            AtualizarStatus($"Status: {output}")
             proc.WaitForExit()
         End Using
+
+        If output.Contains("yt-dlp is up to date") Then
+            AtualizarStatus("Status: Sistema está na última versão.")
+        ElseIf output.Contains("Updated yt-dlp") Then
+            AtualizarStatus("Status: Sistema atualizado com sucesso!")
+        ElseIf output.Contains("ERROR") Then
+            AtualizarStatus("Status: Falha ao atualizar!")
+        End If
+
+        Await Task.Delay(3000)
+        AtualizarStatus("Status: Pronto...")
+
     End Function
 
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
