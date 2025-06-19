@@ -261,7 +261,7 @@ Public Class Form1
             proc.WaitForExit()
             proc.Close()
 
-            txtLog.AppendText(Environment.NewLine & $"[Legendas disponíveis]{Environment.NewLine}{output}{errors}{Environment.NewLine}")
+            ' txtLog.AppendText(Environment.NewLine & $"[Legendas disponíveis]{Environment.NewLine}{output}{errors}{Environment.NewLine}")
 
             Me.Invoke(Sub()
                           FormLegendas.cmbLegendas.Items.Clear()
@@ -294,7 +294,7 @@ Public Class Form1
                               FormLegendas.cmbLegendas.SelectedIndex = 0
                           Else
                               FormLegendas.cmbLegendas.Items.Add("auto (gerada automaticamente)")
-                              FormLegendas.cmbLegendas.SelectedIndex = 0
+                              'FormLegendas.cmbLegendas.SelectedIndex = 0
                           End If
                       End Sub)
         End Using
@@ -422,19 +422,58 @@ Public Class Form1
     End Function
 
     Private Sub cleanFiles()
-        Dim arquivosTemp = Directory.GetFiles(pastaDestino, "*.vtt").Concat(Directory.GetFiles(pastaDestino, "*.temp").Concat(Directory.GetFiles(pastaDestino, "*.f616.mp4")))
+        Dim extensoesPermitidas = New String() {".mp4", ".mp3"}
+        Dim totalDeletados As Integer = 0
 
-        For Each arquivo In arquivosTemp
-            Try
-                File.Delete(arquivo)
-            Catch ex As Exception
-                txtLog.AppendText($"[ERRO ao excluir arquivo temporário] {ex.Message}" & Environment.NewLine)
-            End Try
-        Next
+        Try
+            Dim arquivos = Directory.GetFiles(pastaDestino, "*.*", SearchOption.TopDirectoryOnly)
+
+            For Each arquivo In arquivos
+                Dim ext As String = Path.GetExtension(arquivo).ToLower()
+                Dim nomeArquivo As String = Path.GetFileName(arquivo).ToLower()
+
+                Dim deveExcluir As Boolean = False
+
+                ' Excluir se a extensão não for mp4 nem mp3
+                If Not extensoesPermitidas.Contains(ext) Then
+                    deveExcluir = True
+                End If
+
+                ' Excluir também arquivos com ".fXXX.mp4" no nome (ex: .f135.mp4, .f136.mp4, etc)
+                If ext = ".mp4" AndAlso Regex.IsMatch(nomeArquivo, "\.f\d{3,}\.mp4$") Then
+                    deveExcluir = True
+                End If
+
+                ' Excluir também qualquer .part, .json, .vtt, .temp ou outros conhecidos
+                If nomeArquivo.EndsWith(".part") OrElse
+               nomeArquivo.EndsWith(".json") OrElse
+               nomeArquivo.EndsWith(".vtt") OrElse
+               nomeArquivo.EndsWith(".temp") OrElse
+               nomeArquivo.EndsWith(".m4a") OrElse
+               nomeArquivo.EndsWith(".webm") Then
+                    deveExcluir = True
+                End If
+
+                If deveExcluir Then
+                    Try
+                        DeleteFileSafe(arquivo)
+                        totalDeletados += 1
+                        '  txtLog.AppendText($"🧹 Arquivo deletado: {Path.GetFileName(arquivo)}" & Environment.NewLine)
+                    Catch ex As Exception
+                        txtLog.AppendText($"[ERRO ao deletar] {Path.GetFileName(arquivo)} - {ex.Message}" & Environment.NewLine)
+                    End Try
+                End If
+            Next
+
+            ' txtLog.AppendText($"✅ Limpeza finalizada. Total de arquivos deletados: {totalDeletados}" & Environment.NewLine)
+
+        Catch ex As Exception
+            txtLog.AppendText($"[ERRO durante limpeza] {ex.Message}" & Environment.NewLine)
+        End Try
     End Sub
 
     Private Async Sub BtnExecutar_Click(sender As Object, e As EventArgs) Handles btnExecutar.Click
-
+        Dim success = False
         Dim linksList As New List(Of String)()
         If File.Exists(downloadFilePath) Then
             linksList = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
@@ -487,7 +526,7 @@ Public Class Form1
                     Dim argsVideoStream As New StringBuilder()
                     argsVideoStream.Append($" ""{link}"" ")
                     argsVideoStream.Append("--format best ")
-                    argsVideoStream.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ")
+                    argsVideoStream.Append($"--output ""{My.Settings.destFolder}\%(title)s.%(ext)s"" ")
                     argsVideoStream.Append("--buffer-size 1M ")
                     argsVideoStream.Append("--ignore-errors ")
                     argsVideoStream.Append("--cookies ""cookies.txt"" ")
@@ -497,9 +536,8 @@ Public Class Form1
                     If Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsVideoStream.ToString()) Then
                         etapaAtual += 1
                         MarcarItemComoOK(linkOriginal)
+                        success = True
                     End If
-
-                    cleanFiles()
 
                     Continue For
 
@@ -514,7 +552,7 @@ Public Class Form1
                         Else
                             argsPlaylist.Append("--extractor-args ""youtubetab:skip=authcheck"" ")
                             argsPlaylist.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a] ")
-                            argsPlaylist.Append($"--output ""{My.Settings.destFolder}\%(title)s_video.%(ext)s"" ""{link}"" ")
+                            argsPlaylist.Append($"--output ""{My.Settings.destFolder}\%(title)s.%(ext)s"" ""{link}"" ")
                             argsPlaylist.Append("--ignore-errors ")
                             argsPlaylist.Append("--cookies ""cookies.txt"" ")
                             'argsPlaylist.Append("--cookies-from-browser chrome ")
@@ -535,9 +573,8 @@ Public Class Form1
                         If Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsPlaylist.ToString()) Then
                             etapaAtual += 1
                             MarcarItemComoOK(linkOriginal)
+                            success = True
                         End If
-
-                        cleanFiles()
 
                         Continue For
 
@@ -548,9 +585,8 @@ Public Class Form1
                         If Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, onlyAudio(link)) Then
                             MarcarItemComoOK(linkOriginal)
                             etapaAtual += 1
+                            success = True
                         End If
-
-                        cleanFiles()
 
                         Continue For
 
@@ -578,19 +614,23 @@ Public Class Form1
                     If Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsSingleVideo.ToString()) Then
                         MarcarItemComoOK(linkOriginal)
                         etapaAtual += 1
+                        success = True
                     End If
-
-                    cleanFiles()
 
                 End If
 
             Next
 
-            If Not canceladoPeloUsuario Then
+            If Not canceladoPeloUsuario And success = True Then
                 ' If linkIsPlaylist Or linkIsOnlyAudio Then
                 txtLog.AppendText(Environment.NewLine & "✅ Arquivos baixados com sucesso!" & Environment.NewLine)
                 OpenFolder()
                 StatusLabel.Text = "Status: Download concluido!"
+                Application.DoEvents()
+                Me.Cursor = Cursors.Default
+                cleanFiles()
+            Else
+                StatusLabel.Text = ("Status: Download falhou.")
                 Application.DoEvents()
                 Me.Cursor = Cursors.Default
             End If
@@ -617,6 +657,7 @@ Public Class Form1
         Dim tcs As New TaskCompletionSource(Of Boolean)()
         Dim hasErrors As Boolean = False
         Dim exitCode As Integer = -1
+        Dim ignorandoListaLegendas As Boolean = False
 
 
         ' progressBar.Invoke(Sub() progressBar.Value = 0)
@@ -644,14 +685,14 @@ Public Class Form1
                                                     If ev.Data.Contains("[download] Downloading item") Then
 
                                                         Me.Invoke(Sub()
-                                                                      Dim statusText As String = ev.Data.Replace("[download] Downloading item", "Status: Baixando item da playlist ")
+                                                                      Dim statusText As String = ev.Data.Replace("[download] Downloading item", "Status: Download ")
                                                                       StatusLabel.Text = statusText
                                                                   End Sub)
 
                                                     End If
 
                                                     If ev.Data.Contains("[Merger] Merging formats into") Then
-                                                        AtualizarStatus("Status: Finalizando aguarde...")
+                                                        AtualizarStatus("Status: Aguarde...")
                                                     End If
 
                                                     If ev.Data.Contains("Deleting original file") Then
@@ -730,6 +771,23 @@ Public Class Form1
 
                                                    End If
                                                End If
+
+                                               If ev.Data IsNot Nothing Then
+                                                   Dim ignorandoLegendas As Boolean = False
+
+                                                   ' Início de bloco de legendas
+                                                   If ev.Data.Contains("Available automatic captions for") OrElse ev.Data.Contains("Available subtitles for") Then
+                                                       MsgBox("1")
+                                                       ignorandoLegendas = True
+                                                       Exit Sub
+                                                   End If
+
+                                                   ' Se chegou aqui, é linha normal
+                                                   Me.Invoke(Sub()
+                                                                 txtLog.AppendText(ev.Data & Environment.NewLine)
+                                                             End Sub)
+                                               End If
+
                                            End Sub
 
         ' Handler para quando o processo for finalizado
@@ -742,7 +800,9 @@ Public Class Form1
                                     ultimaLinhaHLS = ""
                                     tcs.TrySetResult(True)
                                     Me.Invoke(Sub()
-                                                  StatusLabel.Text = "Status: Pronto..."
+                                                  If Not hasErrors Then
+                                                      StatusLabel.Text = "Status: Pronto..."
+                                                  End If
                                               End Sub)
                                 End Sub
 
@@ -765,6 +825,21 @@ Public Class Form1
         Return sucessoFinal
 
     End Function
+    Private Sub DeleteFileSafe(caminho As String)
+        Dim tentativas As Integer = 0
+        While tentativas < 5
+            Try
+                If File.Exists(caminho) Then
+                    File.Delete(caminho)
+                End If
+                Exit While ' Sucesso, sai do loop
+            Catch ex As IOException
+                tentativas += 1
+                Threading.Thread.Sleep(500) ' Espera meio segundo antes de tentar de novo
+            End Try
+        End While
+    End Sub
+
     Private Function ObterTamanhoDaPasta(pasta As String) As String
         Try
             Dim tamanhoTotal As Long = 0
