@@ -30,6 +30,7 @@ Public Class Form1
             End If
             StatusLabel.Text = "Status: Adicionando link..."
             Application.DoEvents()
+            btnExecutar.Enabled = False
             Me.Cursor = Cursors.WaitCursor
             File.AppendAllText(downloadFilePath, link & Environment.NewLine)
             txtUrl.Clear()
@@ -38,6 +39,7 @@ Public Class Form1
         Dim links = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
         If links.Count = 0 Then
             txtLog.AppendText("⚠️ Nenhum link encontrado no arquivo." & Environment.NewLine)
+            btnExecutar.Enabled = True
             Return
         End If
 
@@ -47,6 +49,7 @@ Public Class Form1
             ' lstLink.Items.Add(videoData.Item2)
             txtLog.AppendText($"📺 Link contém {videoData.Item1} vídeos." & Environment.NewLine)
             StatusLabel.Text = $"Status: {videoData.Item1} vídeos encontrados"
+            btnExecutar.Enabled = True
         Catch ex As Exception
             StatusLabel.Text = "Status: Nenhum video encontrado."
             txtLog.AppendText("❌ Falha ao contar vídeos: " & ex.Message & Environment.NewLine)
@@ -248,13 +251,15 @@ Public Class Form1
         .UseShellExecute = False,
         .RedirectStandardOutput = True,
         .RedirectStandardError = True,
-        .CreateNoWindow = True
+        .CreateNoWindow = True,
+        .RedirectStandardInput = True
     }
 
         Using proc As Process = Process.Start(psi)
             Dim output As String = Await proc.StandardOutput.ReadToEndAsync()
             Dim errors As String = Await proc.StandardError.ReadToEndAsync()
             proc.WaitForExit()
+            proc.Close()
 
             txtLog.AppendText(Environment.NewLine & $"[Legendas disponíveis]{Environment.NewLine}{output}{errors}{Environment.NewLine}")
 
@@ -262,25 +267,39 @@ Public Class Form1
                           FormLegendas.cmbLegendas.Items.Clear()
 
                           Dim linhas = output.Split({Environment.NewLine}, StringSplitOptions.RemoveEmptyEntries)
-                          For Each linha In linhas
-                              If linha.Contains("Available subtitles") OrElse linha.StartsWith("Language") Then Continue For
 
-                              ' Exemplo de linha: "en        vtt, ttml"
-                              Dim partes = linha.Split(New Char() {" "c}, StringSplitOptions.RemoveEmptyEntries)
-                              If partes.Length > 0 Then
-                                  FormLegendas.cmbLegendas.Items.Add(partes(0)) ' Adiciona o código da linguagem, tipo "en" ou "pt"
+                          Dim startParsing As Boolean = False
+
+                          For Each linha In linhas
+                              linha = linha.Trim()
+
+                              ' Começa só depois do cabeçalho "Language formats"
+                              If linha.StartsWith("Language") Then
+                                  startParsing = True
+                                  Continue For
+                              End If
+
+                              If Not startParsing Then Continue For
+
+                              ' Filtro: Só pega linhas que comecem com código de idioma válido (ex: en, pt, es, etc)
+                              If System.Text.RegularExpressions.Regex.IsMatch(linha, "^[a-z]{2}(\-[a-z]{2})?\s", RegexOptions.IgnoreCase) Then
+                                  Dim partes = linha.Split(New Char() {" "c}, StringSplitOptions.RemoveEmptyEntries)
+                                  If partes.Length > 0 AndAlso Not FormLegendas.cmbLegendas.Items.Contains(partes(0)) Then
+                                      FormLegendas.cmbLegendas.Items.Add(partes(0)) ' Exemplo: "en", "pt", "es"
+                                  End If
                               End If
                           Next
 
                           If FormLegendas.cmbLegendas.Items.Count > 0 Then
                               FormLegendas.cmbLegendas.SelectedIndex = 0
                           Else
-                              FormLegendas.cmbLegendas.Items.Add("Nenhuma legenda disponível")
+                              FormLegendas.cmbLegendas.Items.Add("auto (gerada automaticamente)")
                               FormLegendas.cmbLegendas.SelectedIndex = 0
                           End If
                       End Sub)
         End Using
     End Function
+
 
 
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
@@ -293,6 +312,7 @@ Public Class Form1
 
         If File.Exists(downloadFilePath) Then
             AtualizarStatus("Status: Processando links...")
+            btnExecutar.Enabled = False
             Dim links = File.ReadAllLines(downloadFilePath)
             For Each link In links
                 Dim videoData = Await ContarVideosNaPlaylist(link)
@@ -315,6 +335,7 @@ Public Class Form1
                 End If
             Next
             AtualizarStatus("Status: Pronto...")
+            btnExecutar.Enabled = True
         End If
 
     End Sub
@@ -393,6 +414,25 @@ Public Class Form1
         Return argsAudio
 
     End Function
+
+    Public Function argsLegend(args As String)
+        Dim argsLeg As New StringBuilder()
+        argsLeg.Append(args)
+        Return argsLeg
+    End Function
+
+    Private Sub cleanFiles()
+        Dim arquivosTemp = Directory.GetFiles(pastaDestino, "*.vtt").Concat(Directory.GetFiles(pastaDestino, "*.temp").Concat(Directory.GetFiles(pastaDestino, "*.f616.mp4")))
+
+        For Each arquivo In arquivosTemp
+            Try
+                File.Delete(arquivo)
+            Catch ex As Exception
+                txtLog.AppendText($"[ERRO ao excluir arquivo temporário] {ex.Message}" & Environment.NewLine)
+            End Try
+        Next
+    End Sub
+
     Private Async Sub BtnExecutar_Click(sender As Object, e As EventArgs) Handles btnExecutar.Click
 
         Dim linksList As New List(Of String)()
@@ -459,6 +499,8 @@ Public Class Form1
                         MarcarItemComoOK(linkOriginal)
                     End If
 
+                    cleanFiles()
+
                     Continue For
 
                 Else
@@ -477,10 +519,14 @@ Public Class Form1
                             argsPlaylist.Append("--cookies ""cookies.txt"" ")
                             'argsPlaylist.Append("--cookies-from-browser chrome ")
                             argsPlaylist.Append("--no-warnings ")
+
                             If chkLegendas.Checked Then
                                 Await CarregarLegendasDisponiveis(link)
-                                FormLegendas.ShowDialog()
-                                argsPlaylist.Append("--write-sub --sub-langs ""pt.*"" --sub-format srt --embed-subs ")
+                                Dim resultado As DialogResult = FormLegendas.ShowDialog()
+
+                                If resultado = DialogResult.OK AndAlso Not String.IsNullOrEmpty(FormLegendas.args) Then
+                                    argsPlaylist.Append(" " & FormLegendas.args & " ")
+                                End If
                             End If
 
                         End If
@@ -491,17 +537,20 @@ Public Class Form1
                             MarcarItemComoOK(linkOriginal)
                         End If
 
+                        cleanFiles()
+
                         Continue For
 
                     End If
 
                     If CheckBoxAudio.Checked Then
-                      
                         If canceladoPeloUsuario Then Exit For
                         If Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, onlyAudio(link)) Then
                             MarcarItemComoOK(linkOriginal)
                             etapaAtual += 1
                         End If
+
+                        cleanFiles()
 
                         Continue For
 
@@ -515,14 +564,23 @@ Public Class Form1
                     argsSingleVideo.Append("--cookies ""cookies.txt"" ")
                     ' argsSingleVideo.Append("--cookies-from-browser chrome ")
                     argsSingleVideo.Append("--no-warnings ")
+
                     If chkLegendas.Checked Then
-                        argsSingleVideo.Append("--write-sub --sub-langs ""pt.*"" --sub-format srt --embed-subs ")
+                        Await CarregarLegendasDisponiveis(link)
+                        Dim resultado As DialogResult = FormLegendas.ShowDialog()
+
+                        If resultado = DialogResult.OK AndAlso Not String.IsNullOrEmpty(FormLegendas.args) Then
+                            argsSingleVideo.Append(" " & FormLegendas.args & " ")
+                        End If
                     End If
+
                     If canceladoPeloUsuario Then Exit For
                     If Await ExecutarProcessoAsync(txtLog, progressBarDownload, etapaAtual, etapasTotais, argsSingleVideo.ToString()) Then
                         MarcarItemComoOK(linkOriginal)
                         etapaAtual += 1
                     End If
+
+                    cleanFiles()
 
                 End If
 

@@ -23,27 +23,39 @@ Partial Class FormLegendas
     <System.Diagnostics.DebuggerStepThrough()> _
     Private Sub InitializeComponent()
         GroupBox1 = New GroupBox()
+        btOkleg = New Button()
         cmbLegendas = New ComboBox()
         GroupBox1.SuspendLayout()
         SuspendLayout()
         ' 
         ' GroupBox1
         ' 
+        GroupBox1.Controls.Add(btOkleg)
         GroupBox1.Controls.Add(cmbLegendas)
         GroupBox1.ForeColor = Color.White
         GroupBox1.Location = New Point(12, 12)
         GroupBox1.Name = "GroupBox1"
-        GroupBox1.Size = New Size(154, 63)
+        GroupBox1.Size = New Size(285, 63)
         GroupBox1.TabIndex = 0
         GroupBox1.TabStop = False
         GroupBox1.Text = "Legendas disponíveis"
+        ' 
+        ' btOkleg
+        ' 
+        btOkleg.ForeColor = Color.Black
+        btOkleg.Location = New Point(241, 21)
+        btOkleg.Name = "btOkleg"
+        btOkleg.Size = New Size(38, 23)
+        btOkleg.TabIndex = 1
+        btOkleg.Text = "OK"
+        btOkleg.UseVisualStyleBackColor = True
         ' 
         ' cmbLegendas
         ' 
         cmbLegendas.FormattingEnabled = True
         cmbLegendas.Location = New Point(15, 22)
         cmbLegendas.Name = "cmbLegendas"
-        cmbLegendas.Size = New Size(121, 23)
+        cmbLegendas.Size = New Size(220, 23)
         cmbLegendas.TabIndex = 0
         ' 
         ' FormLegendas
@@ -51,10 +63,11 @@ Partial Class FormLegendas
         AutoScaleDimensions = New SizeF(7F, 15F)
         AutoScaleMode = AutoScaleMode.Font
         BackColor = Color.FromArgb(CByte(40), CByte(40), CByte(40))
-        ClientSize = New Size(180, 89)
+        ClientSize = New Size(309, 89)
         Controls.Add(GroupBox1)
         FormBorderStyle = FormBorderStyle.None
         Name = "FormLegendas"
+        StartPosition = FormStartPosition.CenterScreen
         Text = "FormLegendas"
         GroupBox1.ResumeLayout(False)
         ResumeLayout(False)
@@ -62,4 +75,5 @@ Partial Class FormLegendas
 
     Friend WithEvents GroupBox1 As GroupBox
     Friend WithEvents cmbLegendas As ComboBox
+    Friend WithEvents btOkleg As Button
 End Class

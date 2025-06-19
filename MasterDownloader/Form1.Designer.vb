@@ -96,7 +96,7 @@ Partial Class Form1
         ' 
         ' btLimparLista
         ' 
-        btLimparLista.BackColor = Color.Orange
+        btLimparLista.BackColor = Color.DarkOrange
         btLimparLista.BackgroundImage = CType(resources.GetObject("btLimparLista.BackgroundImage"), Image)
         btLimparLista.BackgroundImageLayout = ImageLayout.Center
         btLimparLista.Cursor = Cursors.Hand
