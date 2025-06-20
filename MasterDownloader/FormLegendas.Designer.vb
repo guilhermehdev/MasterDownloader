@@ -22,6 +22,7 @@ Partial Class FormLegendas
     'Não o modifique usando o editor de códigos.
     <System.Diagnostics.DebuggerStepThrough()> _
     Private Sub InitializeComponent()
+        Dim resources As System.ComponentModel.ComponentResourceManager = New System.ComponentModel.ComponentResourceManager(GetType(FormLegendas))
         GroupBox1 = New GroupBox()
         btOkleg = New Button()
         cmbLegendas = New ComboBox()
@@ -62,13 +63,14 @@ Partial Class FormLegendas
         ' 
         AutoScaleDimensions = New SizeF(7F, 15F)
         AutoScaleMode = AutoScaleMode.Font
-        BackColor = Color.FromArgb(CByte(40), CByte(40), CByte(40))
+        BackColor = Color.SteelBlue
         ClientSize = New Size(309, 89)
         Controls.Add(GroupBox1)
         FormBorderStyle = FormBorderStyle.None
+        Icon = CType(resources.GetObject("$this.Icon"), Icon)
         Name = "FormLegendas"
         StartPosition = FormStartPosition.CenterScreen
-        Text = "FormLegendas"
+        Text = "Selecionar idioma"
         GroupBox1.ResumeLayout(False)
         ResumeLayout(False)
     End Sub

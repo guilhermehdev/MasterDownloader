@@ -1,9 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.14.36203.30 d17.14
+VisualStudioVersion = 17.14.36203.30
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{F184B08F-C81C-45F6-A57F-5ABD9991F28F}") = "MasterDownloader", "MasterDownloader\MasterDownloader.vbproj", "{BC0172C2-F03D-4394-A633-2573841247EF}"
+Project("{F184B08F-C81C-45F6-A57F-5ABD9991F28F}") = "PbPb Downloader", "MasterDownloader\PbPb Downloader.vbproj", "{BC0172C2-F03D-4394-A633-2573841247EF}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

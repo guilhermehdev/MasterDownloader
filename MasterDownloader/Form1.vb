@@ -19,9 +19,9 @@ Public Class Form1
     Private inicioHLS As DateTime
     Private progressoAtualLink As Integer = 0
     Private canceladoPeloUsuario As Boolean = False
+    Private ultimoLinkDetectado As String = ""
 
-    Private Async Sub BtnAdicionar_Click(sender As Object, e As EventArgs) Handles btnAdicionar.Click
-        Dim link As String = txtUrl.Text.Trim()
+    Private Async Sub addLink(ByVal link As String)
 
         If link <> "" Then
             If Not File.Exists(downloadFilePath) Then
@@ -55,7 +55,9 @@ Public Class Form1
             txtLog.AppendText("❌ Falha ao contar vídeos: " & ex.Message & Environment.NewLine)
         End Try
         Me.Cursor = Cursors.Default
-
+    End Sub
+    Private Sub BtnAdicionar_Click(sender As Object, e As EventArgs) Handles btnAdicionar.Click
+        addLink(txtUrl.Text.Trim())
     End Sub
     Private Sub MarcarItemComoOK(linkOriginal As String)
         For Each item As ListViewItem In lstLink.Items
@@ -303,6 +305,7 @@ Public Class Form1
 
 
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
+        TimerClipboard.Start()
         progressBarDownload.Location = New Point(12, 224)
         Me.Height = 335
         AddHandler timerFakeProgress.Tick, AddressOf timerFakeProgress_Tick
@@ -489,6 +492,7 @@ Public Class Form1
         StatusLabel.Text = "Status: Iniciando..."
         Application.DoEvents()
         Me.Cursor = Cursors.WaitCursor
+
         linksConcluidos = 0
         Dim etapaAtual As Integer = 0
         Dim etapasTotais As Integer = 0
@@ -526,6 +530,7 @@ Public Class Form1
                     Dim argsVideoStream As New StringBuilder()
                     argsVideoStream.Append($" ""{link}"" ")
                     argsVideoStream.Append("--format best ")
+                    argsVideoStream.Append("--downloader ffmpeg ")
                     argsVideoStream.Append($"--output ""{My.Settings.destFolder}\%(title)s.%(ext)s"" ")
                     argsVideoStream.Append("--buffer-size 1M ")
                     argsVideoStream.Append("--ignore-errors ")
@@ -596,6 +601,7 @@ Public Class Form1
                     argsSingleVideo.Append("--extractor-args ""youtubetab:skip=authcheck"" ")
                     argsSingleVideo.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a] --no-playlist ")
                     argsSingleVideo.Append($"--output ""{My.Settings.destFolder}\%(title)s.%(ext)s"" ""{link}"" ")
+                    argsSingleVideo.Append("--merge-output-format mp4 ")
                     argsSingleVideo.Append("--ignore-errors ")
                     argsSingleVideo.Append("--cookies ""cookies.txt"" ")
                     ' argsSingleVideo.Append("--cookies-from-browser chrome ")
@@ -648,6 +654,7 @@ Public Class Form1
             Me.Invoke(Sub()
                           Me.Cursor = Cursors.Default
                           txtLog.Cursor = Cursors.Default
+
                       End Sub)
         End Try
     End Sub
@@ -693,6 +700,10 @@ Public Class Form1
 
                                                     If ev.Data.Contains("[Merger] Merging formats into") Then
                                                         AtualizarStatus("Status: Aguarde...")
+                                                        Me.Invoke(Sub()
+                                                                      Me.Cursor = Cursors.WaitCursor
+                                                                      txtLog.Cursor = Cursors.WaitCursor
+                                                                  End Sub)
                                                     End If
 
                                                     If ev.Data.Contains("Deleting original file") Then
@@ -724,6 +735,9 @@ Public Class Form1
                                                         Me.Invoke(Sub()
                                                                       Me.Cursor = Cursors.Default
                                                                       txtLog.Cursor = Cursors.Default
+                                                                      chkLegendas.Enabled = False
+                                                                      CheckBoxAudio.Enabled = False
+                                                                      btLimparLista.Enabled = False
                                                                   End Sub)
                                                     End If
 
@@ -802,6 +816,11 @@ Public Class Form1
                                     Me.Invoke(Sub()
                                                   If Not hasErrors Then
                                                       StatusLabel.Text = "Status: Pronto..."
+                                                      Me.Cursor = Cursors.Default
+                                                      txtLog.Cursor = Cursors.Default
+                                                      chkLegendas.Enabled = True
+                                                      CheckBoxAudio.Enabled = True
+                                                      btLimparLista.Enabled = True
                                                   End If
                                               End Sub)
                                 End Sub
@@ -1093,6 +1112,55 @@ Public Class Form1
     End Sub
     Private Async Sub VerificarAtualizaçõesToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles VerificarAtualizaçõesToolStripMenuItem.Click
         Await VerificarAtualizacaoYTDLP()
+    End Sub
+    ' Minimizar para o Tray
+    Private Sub MinimizarParaTray()
+        Me.Hide()
+        Me.ShowInTaskbar = True
+        NotifyIcon1.Visible = True
+        'NotifyIcon1.BalloonTipTitle = "Minimizado"
+        'NotifyIcon1.BalloonTipText = "O programa está em execução em segundo plano."
+        'NotifyIcon1.ShowBalloonTip(1000)
+    End Sub
+
+    Private Sub NotifyIcon1_DoubleClick(sender As Object, e As EventArgs) Handles NotifyIcon1.DoubleClick
+        Me.Show()
+        Me.WindowState = FormWindowState.Normal
+        Me.ShowInTaskbar = True
+        NotifyIcon1.Visible = False
+    End Sub
+
+    Private Sub Form1_Resize(sender As Object, e As EventArgs) Handles MyBase.Resize
+        If Me.WindowState = FormWindowState.Minimized Then
+            MinimizarParaTray()
+        End If
+    End Sub
+    Private Sub TimerClipboard_Tick(sender As Object, e As EventArgs) Handles TimerClipboard.Tick
+        Try
+            If Clipboard.ContainsText() Then
+                Dim textoAtual As String = Clipboard.GetText().Trim()
+
+                If textoAtual.StartsWith("http", StringComparison.OrdinalIgnoreCase) AndAlso textoAtual <> ultimoLinkDetectado Then
+                    ultimoLinkDetectado = textoAtual
+
+                    Dim resposta = MessageBox.Show($"Link detectado na área de transferência:{Environment.NewLine}{textoAtual}{Environment.NewLine}{Environment.NewLine}Deseja adicionar à lista de downloads?", "Novo Link Detectado", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
+
+                    If resposta = DialogResult.Yes Then
+                        addLink(textoAtual)
+                    End If
+                End If
+            End If
+        Catch ex As Exception
+            txtLog.AppendText($"[ERRO Monitor Clipboard] {ex.Message}{Environment.NewLine}")
+        End Try
+    End Sub
+    Private Sub CheckBoxAudio_CheckedChanged(sender As Object, e As EventArgs) Handles CheckBoxAudio.CheckedChanged
+        If CheckBoxAudio.Checked Then
+            chkLegendas.Enabled = False
+            chkLegendas.Checked = False
+        Else
+            chkLegendas.Enabled = True
+        End If
     End Sub
 
 End Class

@@ -29,6 +29,8 @@ Partial Class Form1
         Button1 = New Button()
         ToolTip1 = New ToolTip(components)
         lstLink = New ListView()
+        NotifyIcon1 = New NotifyIcon(components)
+        TimerClipboard = New Timer(components)
         StatusStrip1.SuspendLayout()
         MenuStrip1.SuspendLayout()
         SuspendLayout()
@@ -271,6 +273,17 @@ Partial Class Form1
         lstLink.UseCompatibleStateImageBehavior = False
         lstLink.View = View.Details
         ' 
+        ' NotifyIcon1
+        ' 
+        NotifyIcon1.BalloonTipIcon = ToolTipIcon.Info
+        NotifyIcon1.Icon = CType(resources.GetObject("NotifyIcon1.Icon"), Icon)
+        NotifyIcon1.Text = vbCrLf
+        NotifyIcon1.Visible = True
+        ' 
+        ' TimerClipboard
+        ' 
+        TimerClipboard.Interval = 1000
+        ' 
         ' Form1
         ' 
         BackColor = Color.FromArgb(CByte(40), CByte(40), CByte(40))
@@ -290,11 +303,12 @@ Partial Class Form1
         Controls.Add(btnExecutar)
         Controls.Add(txtLog)
         FormBorderStyle = FormBorderStyle.FixedSingle
+        Icon = CType(resources.GetObject("$this.Icon"), Icon)
         MainMenuStrip = MenuStrip1
         MaximizeBox = False
         Name = "Form1"
         StartPosition = FormStartPosition.CenterScreen
-        Text = "MasterDownloader"
+        Text = "PbPb Downloader"
         StatusStrip1.ResumeLayout(False)
         StatusStrip1.PerformLayout()
         MenuStrip1.ResumeLayout(False)
@@ -325,4 +339,6 @@ Partial Class Form1
     Friend WithEvents ToolTip1 As ToolTip
     Friend WithEvents lstLink As ListView
     Friend WithEvents VerificarAtualizaçõesToolStripMenuItem As ToolStripMenuItem
+    Friend WithEvents NotifyIcon1 As NotifyIcon
+    Friend WithEvents TimerClipboard As Timer
 End Class
