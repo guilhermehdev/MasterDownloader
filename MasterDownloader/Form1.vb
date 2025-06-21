@@ -301,11 +301,9 @@ Public Class Form1
                       End Sub)
         End Using
     End Function
-
-
-
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         TimerClipboard.Start()
+        NotifyIcon1.Text = "PbPb Downloader"
         progressBarDownload.Location = New Point(12, 224)
         Me.Height = 335
         AddHandler timerFakeProgress.Tick, AddressOf timerFakeProgress_Tick
@@ -513,7 +511,8 @@ Public Class Form1
                 End If
             Next
 
-            progressBarDownload.Maximum = etapasTotais * 100
+            'progressBarDownload.Maximum = etapasTotais * 100
+            progressBarDownload.Maximum = etapasTotais
             progressBarDownload.Value = 0
             etapaAtual = 0
 
@@ -602,7 +601,7 @@ Public Class Form1
                     argsSingleVideo.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a] --no-playlist ")
                     argsSingleVideo.Append($"--output ""{My.Settings.destFolder}\%(title)s.%(ext)s"" ""{link}"" ")
                     argsSingleVideo.Append("--merge-output-format mp4 ")
-                    argsSingleVideo.Append("--ignore-errors ")
+                    ' argsSingleVideo.Append("--ignore-errors ")
                     argsSingleVideo.Append("--cookies ""cookies.txt"" ")
                     ' argsSingleVideo.Append("--cookies-from-browser chrome ")
                     argsSingleVideo.Append("--no-warnings ")
@@ -656,6 +655,22 @@ Public Class Form1
                           txtLog.Cursor = Cursors.Default
 
                       End Sub)
+            If success AndAlso Not canceladoPeloUsuario Then
+                NotifyIcon1.BalloonTipTitle = "✅ Download Concluído"
+                NotifyIcon1.BalloonTipText = $"Todos os arquivos foram baixados com sucesso."
+                NotifyIcon1.ShowBalloonTip(2000)
+            ElseIf canceladoPeloUsuario Then
+                NotifyIcon1.BalloonTipTitle = "⛔ Download Cancelado"
+                NotifyIcon1.BalloonTipText = $"O processo foi cancelado pelo usuário."
+                NotifyIcon1.ShowBalloonTip(2000)
+            Else
+                NotifyIcon1.BalloonTipTitle = "❌ Download Falhou"
+                NotifyIcon1.BalloonTipText = $"Ocorreu uma falha durante o download."
+                NotifyIcon1.ShowBalloonTip(2000)
+            End If
+
+            NotifyIcon1.Text = "PbPb Downloader"
+
         End Try
     End Sub
 
@@ -728,7 +743,9 @@ Public Class Form1
 
                                                         Me.Invoke(Sub()
                                                                       progressBarDownload.Maximum = totalEtapas * 100
+                                                                      ' progressBarDownload.Maximum = etapasTotais
                                                                       progressBarDownload.Value = Math.Min(progressoGlobal, progressBarDownload.Maximum)
+                                                                      AtualizarNotifyIconProgresso()
                                                                   End Sub)
 
                                                         AtualizarStatus("Status: Download em andamento...")
@@ -977,6 +994,7 @@ Public Class Form1
         If folderBrowser.ShowDialog() = DialogResult.OK Then
             My.Settings.destFolder = folderBrowser.SelectedPath
             My.Settings.Save()
+            My.Settings.Upgrade()
             txtLog.AppendText($"🗂️ Pasta de destino alterada para: {My.Settings.destFolder}" & Environment.NewLine)
         End If
 
@@ -1118,16 +1136,9 @@ Public Class Form1
         Me.Hide()
         Me.ShowInTaskbar = True
         NotifyIcon1.Visible = True
-        'NotifyIcon1.BalloonTipTitle = "Minimizado"
-        'NotifyIcon1.BalloonTipText = "O programa está em execução em segundo plano."
-        'NotifyIcon1.ShowBalloonTip(1000)
-    End Sub
-
-    Private Sub NotifyIcon1_DoubleClick(sender As Object, e As EventArgs) Handles NotifyIcon1.DoubleClick
-        Me.Show()
-        Me.WindowState = FormWindowState.Normal
-        Me.ShowInTaskbar = True
-        NotifyIcon1.Visible = False
+        NotifyIcon1.BalloonTipTitle = " "
+        NotifyIcon1.BalloonTipText = "O programa está em execução em segundo plano."
+        NotifyIcon1.ShowBalloonTip(1000)
     End Sub
 
     Private Sub Form1_Resize(sender As Object, e As EventArgs) Handles MyBase.Resize
@@ -1135,6 +1146,25 @@ Public Class Form1
             MinimizarParaTray()
         End If
     End Sub
+    Private Sub AtualizarNotifyIconProgresso()
+        Dim porcentagem As Integer = 0
+        If progressBarDownload.Maximum > 0 Then
+            porcentagem = CInt((progressBarDownload.Value / progressBarDownload.Maximum) * 100)
+        End If
+
+        NotifyIcon1.Text = $"Download: {porcentagem}% completo"
+    End Sub
+
+    'Private Sub MonitorarClipboardTelegram()
+    '    Dim texto As String = Clipboard.GetText()
+
+    '    If texto.StartsWith("https://t.me/") OrElse texto.Contains("t.me/") Then
+    '        If MessageBox.Show($"📋 Link do Telegram detectado:{Environment.NewLine}{texto}{Environment.NewLine}{Environment.NewLine}Deseja adicionar à lista de downloads?", "Novo Link Detectado", MessageBoxButtons.YesNo, MessageBoxIcon.Question) = DialogResult.Yes Then
+    '            addLink(texto)
+    '        End If
+    '    End If
+    'End Sub
+
     Private Sub TimerClipboard_Tick(sender As Object, e As EventArgs) Handles TimerClipboard.Tick
         Try
             If Clipboard.ContainsText() Then
@@ -1163,4 +1193,18 @@ Public Class Form1
         End If
     End Sub
 
+    Private Sub chkLegendas_CheckedChanged(sender As Object, e As EventArgs) Handles chkLegendas.CheckedChanged
+        If chkLegendas.Checked Then
+            CheckBoxAudio.Enabled = False
+            CheckBoxAudio.Checked = False
+        Else
+            CheckBoxAudio.Enabled = True
+        End If
+    End Sub
+    Private Sub NotifyIcon1_MouseClick(sender As Object, e As MouseEventArgs) Handles NotifyIcon1.MouseClick
+        Me.Show()
+        Me.WindowState = FormWindowState.Normal
+        Me.ShowInTaskbar = True
+        NotifyIcon1.Visible = False
+    End Sub
 End Class
