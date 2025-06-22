@@ -317,7 +317,7 @@ Public Class Form1
         End Using
     End Function
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
-
+        ' timerFakeProgress.Start()
         NotifyIcon1.Text = "PbPb Downloader"
         progressBarDownload.Location = New Point(12, 224)
         Me.Height = 335
@@ -492,6 +492,16 @@ Public Class Form1
     End Sub
 
     Private Async Sub BtnExecutar_Click(sender As Object, e As EventArgs) Handles btnExecutar.Click
+        btnExecutar.Enabled = False
+        btCancelar.Enabled = True
+        'timerFakeProgress.Start()
+        progressBarDownload.Value = 0
+        StatusLabel.Text = "Status: Iniciando..."
+        Me.Cursor = Cursors.WaitCursor
+        txtLog.Clear()
+        Application.DoEvents()
+
+
         Dim successOverall As Boolean = True ' Para rastrear se todos os downloads tiveram sucesso
         Dim linksList As New List(Of String)()
         If File.Exists(downloadFilePath) Then
@@ -504,18 +514,9 @@ Public Class Form1
             Exit Sub
         End If
 
-        txtLog.Clear()
-        timerFakeProgress.Start()
-        StatusLabel.Text = "Status: Iniciando..."
-
-        Application.DoEvents()
-        Me.Cursor = Cursors.WaitCursor
-
         linksConcluidos = 1
-        btnExecutar.Enabled = False
-        btCancelar.Enabled = True
         canceladoPeloUsuario = False
-        progressBarDownload.Value = 0
+
 
         ' AQUI MUDAMOS A LÓGICA DO PROGRESSBAR.MAXIMUM
         ' Se cada link pode ter 2 etapas (audio + video + merging),
@@ -681,7 +682,6 @@ Public Class Form1
         Dim proc = processoYtDlp
         proc.StartInfo = psi
         proc.EnableRaisingEvents = True
-        timerFakeProgress.Stop()
 
         AddHandler proc.OutputDataReceived, Sub(s, ev)
                                                 If ev.Data IsNot Nothing Then
@@ -742,7 +742,7 @@ Public Class Form1
                                                     ' Tenta extrair o progresso da linha de saída
                                                     Dim match As Match = Regex.Match(linha, "\[download\]\s+(\d{1,3}(?:\.\d+)?)%")
                                                     If match.Success Then
-                                                        timerFakeProgress.Stop() ' Se for um download normal, para o fake progress
+                                                        'timerFakeProgress.Stop() ' Se for um download normal, para o fake progress
                                                         Dim percentText = match.Groups(1).Value.Replace(",", ".")
                                                         Dim percentEtapa As Integer = CInt(Math.Floor(Double.Parse(percentText, Globalization.CultureInfo.InvariantCulture)))
                                                         percentEtapa = Math.Min(percentEtapa, 100) ' Garante que não exceda 100
@@ -806,20 +806,24 @@ Public Class Form1
                                                        ' É um log técnico de HLS, não um erro real para o usuário.
                                                        ' Podemos ignorar ou exibir de forma diferente.
                                                        Me.Invoke(Sub()
-                                                                     Dim tamanho = ObterTamanhoDaPasta(My.Settings.destFolder)
-                                                                     Dim tempoGravacao = DateTime.Now - inicioHLS
-                                                                     Dim tempoTexto = $"{tempoGravacao.Minutes:D2}:{tempoGravacao.Seconds:D2}"
+                                                                     Try
+                                                                         Dim tamanho = ObterTamanhoDaPasta(My.Settings.destFolder)
+                                                                         Dim tempoGravacao = DateTime.Now - inicioHLS
+                                                                         Dim tempoTexto = $"{tempoGravacao.Minutes:D2}:{tempoGravacao.Seconds:D2}"
 
-                                                                     ' Remove a última linha, se já houver
-                                                                     If Not String.IsNullOrEmpty(ultimaLinhaHLS) AndAlso txtLog.Text.Contains(ultimaLinhaHLS) Then
-                                                                         txtLog.Text = txtLog.Text.Replace(ultimaLinhaHLS, "")
-                                                                     End If
+                                                                         ' Remove a última linha, se já houver
+                                                                         If Not String.IsNullOrEmpty(ultimaLinhaHLS) AndAlso txtLog.Text.Contains(ultimaLinhaHLS) Then
+                                                                             txtLog.Text = txtLog.Text.Replace(ultimaLinhaHLS, "")
+                                                                         End If
 
-                                                                     ' Atualiza com nova linha de status
-                                                                     ultimaLinhaHLS = Environment.NewLine & $"📡 Capturando streaming... Tempo: {tempoTexto} | Tamanho: {tamanho}" & Environment.NewLine
-                                                                     txtLog.AppendText(ultimaLinhaHLS)
-                                                                     AtualizarStatus($"Status: Gravando stream HLS... Tempo: {tempoTexto} | Tamanho atual: {tamanho}")
-                                                                     NotifyIcon1.Text = $"Gravando stream HLS... Tempo: {tempoTexto} | Tamanho atual: {tamanho}"
+                                                                         ' Atualiza com nova linha de status
+                                                                         ultimaLinhaHLS = Environment.NewLine & $"📡 Capturando streaming... Tempo: {tempoTexto} | Tamanho: {tamanho}" & Environment.NewLine
+                                                                         txtLog.AppendText(ultimaLinhaHLS)
+                                                                         AtualizarStatus($"Status: Gravando stream HLS... Tempo: {tempoTexto} | Tamanho atual: {tamanho}")
+                                                                         NotifyIcon1.Text = $"Gravando stream HLS... Tempo: {tempoTexto} | Tamanho atual: {tamanho}"
+                                                                     Catch ex As Exception
+
+                                                                     End Try
                                                                  End Sub)
                                                    End If
 
@@ -1211,8 +1215,8 @@ Public Class Form1
                      Try
                          Me.Invoke(Sub()
                                        StatusLabel.Text = "Status: Cancelando download..."
-                                       timerFakeProgress.Stop()
-                                       Me.Cursor = Cursors.WaitCursor
+                                       'timerFakeProgress.Stop()
+                                       Me.Cursor = Cursors.Default
                                    End Sub)
 
                          ' Tenta matar o processo yt-dlp
@@ -1426,6 +1430,7 @@ Public Class Form1
         End If
     End Sub
     Private Sub timerFakeProgress_Tick(sender As Object, e As EventArgs) Handles timerFakeProgress.Tick
+        Debug.WriteLine("Atualizando barra de progresso fake...")
         If progressBarDownload.Value < progressBarDownload.Maximum Then
             progressBarDownload.Value += 1
         Else
@@ -1495,7 +1500,7 @@ Public Class Form1
         Try
             If Clipboard.ContainsText() Then
                 Dim linkDetected As String = Clipboard.GetText().Trim()
-                Debug.WriteLine($"Link detectado: {linkDetected}")
+                'Debug.WriteLine($"Link detectado: {linkDetected}")
                 If linkDetected.StartsWith("http", StringComparison.OrdinalIgnoreCase) AndAlso linkDetected <> ultimoLinkDetectado AndAlso ListViewContains(lstLink, linkDetected) = False Then
 
                     ultimoLinkDetectado = linkDetected
