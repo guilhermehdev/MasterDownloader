@@ -20,6 +20,7 @@ Public Class Form1
     Private progressoAtualLink As Integer = 0
     Private canceladoPeloUsuario As Boolean = False
     Private ultimoLinkDetectado As String = ""
+    Private currentDownloadLink As String = ""
 
     ' --- NOVO: Variáveis para controle de fases dentro de um único link ---
     Private Enum CurrentDownloadPhase
@@ -525,13 +526,18 @@ Public Class Form1
         Try
             For Each link In linksList
                 If canceladoPeloUsuario Then Exit For
-
+                currentDownloadLink = link
                 Dim linkOriginal As String = link ' Mantém o link original para referência
 
                 ' Resetar a barra para cada link
                 Me.Invoke(Sub()
                               progressBarDownload.Value = 0
-                              StatusLabel.Text = $"Status: Baixando {linksConcluidos} de {linksList.Count}..."
+                              If IsPlaylist(link) Then
+                                  StatusLabel.Text = $"Status: Baixando playlist..."
+                              Else
+                                  StatusLabel.Text = $"Status: Baixando {linksConcluidos} de {linksList.Count}..."
+                              End If
+                              ' StatusLabel.Text = $"Status: Baixando {linksConcluidos} de {linksList.Count}..."
                           End Sub)
                 Application.DoEvents() ' Processa eventos para atualizar a UI
 
@@ -698,7 +704,7 @@ Public Class Form1
 
                                                     If linha.Contains("[download] Downloading item") Then
                                                         Me.Invoke(Sub()
-                                                                      Dim statusText As String = linha.Replace("[download] Downloading item", "Status: Download do item")
+                                                                      Dim statusText As String = linha.Replace("[download] Downloading item", "Status: Baixando item")
                                                                       StatusLabel.Text = statusText
                                                                   End Sub)
                                                         logTextBox.Invoke(Sub() logTextBox.AppendText(linha & Environment.NewLine))
@@ -1411,18 +1417,63 @@ Public Class Form1
 
                          End If
 
-                         ' Limpeza de arquivos .part
-                         Dim arquivosPart = Directory.GetFiles(pastaDestino, "*.part", SearchOption.TopDirectoryOnly)
+                         If Not IsHLS(currentDownloadLink) Then
+                             cleanFiles()
+                         Else
+                             ' Limpeza de arquivos .part
+                             Dim arquivosPart = Directory.GetFiles(pastaDestino, "*.part", SearchOption.TopDirectoryOnly)
+                             Dim arquivosVideo = arquivosPart.Where(Function(f) f.EndsWith(".mp4.part") OrElse f.EndsWith(".webm.part")).ToList()
+                             Dim arquivosAudio = arquivosPart.Where(Function(f) f.EndsWith(".m4a.part") OrElse (f.EndsWith(".webm.part") AndAlso Not f.EndsWith(".mp4.part"))).ToList()
 
-                         For Each arquivo In arquivosPart
-                             Try
-                                 cleanFiles()
-                             Catch ex As Exception
-                                 Me.Invoke(Sub()
-                                               txtLog.AppendText($"[ERRO ao deletar {Path.GetFileName(arquivo)}] {ex.Message}" & Environment.NewLine)
-                                           End Sub)
-                             End Try
-                         Next
+                             ' 1. Renomear .part para o nome final
+                             For Each arquivo In arquivosPart
+                                 Dim novoNome = Path.Combine(pastaDestino, Path.GetFileNameWithoutExtension(arquivo))
+                                 Try
+                                     File.Move(arquivo, novoNome)
+                                 Catch ex As Exception
+                                     Me.Invoke(Sub() txtLog.AppendText($"[ERRO ao renomear {Path.GetFileName(arquivo)}] {ex.Message}" & Environment.NewLine))
+                                 End Try
+                             Next
+
+                             ' 2. Atualizar listas agora sem ".part"
+                             arquivosVideo = Directory.GetFiles(pastaDestino, "*.mp4", SearchOption.TopDirectoryOnly).ToList()
+                             arquivosAudio = Directory.GetFiles(pastaDestino, "*.m4a", SearchOption.TopDirectoryOnly).ToList()
+
+
+                             For Each video In arquivosVideo
+                                 Dim nomeBase = Path.GetFileNameWithoutExtension(video).Replace(".mp4", "").Replace(".webm", "")
+                                 Dim audio = arquivosAudio.FirstOrDefault(Function(a) Path.GetFileNameWithoutExtension(a).Contains(nomeBase))
+
+                                 If Not String.IsNullOrEmpty(audio) Then
+                                     Dim outputFinal = Path.Combine(pastaDestino, nomeBase & "_merged.mp4")
+                                     Dim ffmpegPath = Path.Combine(Application.StartupPath, "app", "ffmpeg.exe")
+                                     Dim psi As New ProcessStartInfo(ffmpegPath, $"-y -i ""{video}"" -i ""{audio}"" -c copy ""{outputFinal}""") With {
+                                     .CreateNoWindow = True,
+                                     .UseShellExecute = False
+                                 }
+
+                                     Using ffmpegProc As Process = Process.Start(psi)
+                                         ffmpegProc.WaitForExit()
+                                     End Using
+
+                                 End If
+                             Next
+
+                             Me.Invoke(Sub()
+                                           NotifyIcon1.BalloonTipTitle = "✅ Streaming Concluído"
+                                           NotifyIcon1.BalloonTipText = "O streaming terminou de ser capturado."
+                                           NotifyIcon1.ShowBalloonTip(2000)
+                                           StatusLabel.Text = "Status: O streaming terminou de ser capturado."
+                                           btnExecutar.Enabled = True
+                                           btCancelar.Enabled = False
+                                           Me.Cursor = Cursors.Default
+                                           progressBarDownload.Value = 0
+                                       End Sub)
+
+                             cleanFiles()
+                             OpenFolder()
+                             Exit Sub
+                         End If
 
                          ' Limpa barra de progresso e atualiza interface
                          Me.Invoke(Sub()
