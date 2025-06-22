@@ -20,6 +20,7 @@ Public Class Form1
     Private progressoAtualLink As Integer = 0
     Private canceladoPeloUsuario As Boolean = False
     Private ultimoLinkDetectado As String = ""
+
     ' --- NOVO: Variáveis para controle de fases dentro de um único link ---
     Private Enum CurrentDownloadPhase
         Initial
@@ -31,7 +32,7 @@ Public Class Form1
     Private currentLinkPhase As CurrentDownloadPhase = CurrentDownloadPhase.Initial
     ' ----------------------------------------------------------------------
 
-    Private Async Sub addLink(ByVal link As String)
+    Private Async Function addLink(ByVal link As String) As Task
 
         If link <> "" Then
             If Not File.Exists(downloadFilePath) Then
@@ -65,9 +66,9 @@ Public Class Form1
             txtLog.AppendText("❌ Falha ao contar vídeos: " & ex.Message & Environment.NewLine)
         End Try
         Me.Cursor = Cursors.Default
-    End Sub
-    Private Sub BtnAdicionar_Click(sender As Object, e As EventArgs) Handles btnAdicionar.Click
-        addLink(txtUrl.Text.Trim())
+    End Function
+    Private Async Sub BtnAdicionar_Click(sender As Object, e As EventArgs) Handles btnAdicionar.Click
+        Await addLink(txtUrl.Text.Trim())
     End Sub
     Private Sub MarcarItemComoOK(linkOriginal As String)
         For Each item As ListViewItem In lstLink.Items
@@ -178,6 +179,8 @@ Public Class Form1
         item.SubItems.Add("Em fila")
         item.SubItems.Add("🗑️")
         lstLink.Items.Add(item)
+        TimerClipboard.Start()
+
     End Sub
 
     Private Sub lstLink_MouseClick(sender As Object, e As MouseEventArgs) Handles lstLink.MouseClick
@@ -312,7 +315,6 @@ Public Class Form1
         End Using
     End Function
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
-        TimerClipboard.Start()
 
         NotifyIcon1.Text = "PbPb Downloader"
         progressBarDownload.Location = New Point(12, 224)
@@ -326,9 +328,11 @@ Public Class Form1
             AtualizarStatus("Status: Processando links...")
             btnExecutar.Enabled = False
             Dim links = File.ReadAllLines(downloadFilePath)
+
             For Each link In links
                 Dim videoData = Await ContarVideosNaPlaylist(link)
                 AdicionarTituloNaListView(UnescapeUnicode(videoData.Item2), link)
+                TimerClipboard.Stop()
             Next
 
             For Each item As ListViewItem In lstLink.Items
@@ -346,9 +350,10 @@ Public Class Form1
                     item.SubItems(1).Text = "Em fila"
                 End If
             Next
-            AtualizarStatus("Status: Pronto...")
-            btnExecutar.Enabled = True
         End If
+        AtualizarStatus("Status: Pronto...")
+        btnExecutar.Enabled = True
+        TimerClipboard.Start()
 
     End Sub
     Private Sub BtLimparLista_Click(sender As Object, e As EventArgs) Handles btLimparLista.Click
@@ -498,12 +503,13 @@ Public Class Form1
         End If
 
         txtLog.Clear()
+        timerFakeProgress.Start()
         StatusLabel.Text = "Status: Iniciando..."
 
         Application.DoEvents()
         Me.Cursor = Cursors.WaitCursor
 
-        linksConcluidos = 0
+        linksConcluidos = 1
         btnExecutar.Enabled = False
         btCancelar.Enabled = True
         canceladoPeloUsuario = False
@@ -525,7 +531,7 @@ Public Class Form1
                 ' Resetar a barra para cada link
                 Me.Invoke(Sub()
                               progressBarDownload.Value = 0
-                              StatusLabel.Text = $"Status: Baixando {linksConcluidos + 1} de {linksList.Count}..."
+                              StatusLabel.Text = $"Status: Baixando {linksConcluidos} de {linksList.Count}..."
                           End Sub)
                 Application.DoEvents() ' Processa eventos para atualizar a UI
 
@@ -584,6 +590,7 @@ Public Class Form1
                 If canceladoPeloUsuario Then Exit For ' Verifica cancelamento antes de executar
                 If Await ExecutarProcessoAsync(txtLog, progressBarDownload, args.ToString()) Then
                     MarcarItemComoOK(linkOriginal)
+                    linksConcluidos += 1
                 Else
                     successOverall = False
                 End If
@@ -676,14 +683,14 @@ Public Class Form1
                                                     ' --- Nova Lógica de Fases e Progresso ---
 
                                                     If linha.Contains("[download] Destination:") Then
-                                                        Me.Invoke(Sub() timerFakeProgress.Stop())
+
                                                         ' É o início de um novo arquivo sendo baixado (áudio ou vídeo)
                                                         If currentLinkPhase = CurrentDownloadPhase.Initial Then
                                                             currentLinkPhase = CurrentDownloadPhase.DownloadingPart1
-                                                            Me.Invoke(Sub() StatusLabel.Text = "Status: Download em progresso...")
+                                                            ' Me.Invoke(Sub() StatusLabel.Text = "Status: Download em progresso...")
                                                         ElseIf currentLinkPhase = CurrentDownloadPhase.DownloadingPart1 Then
                                                             currentLinkPhase = CurrentDownloadPhase.DownloadingPart2
-                                                            Me.Invoke(Sub() StatusLabel.Text = "Status: Baixando parte 2/2...")
+                                                            ' Me.Invoke(Sub() StatusLabel.Text = "Status: Baixando parte 2/2...")
                                                         End If
                                                         ' Resetar a barra para o download da parte
                                                         Me.Invoke(Sub() progressBar.Value = 0)
@@ -751,7 +758,7 @@ Public Class Form1
                                                                       AtualizarNotifyIconProgresso()
                                                                   End Sub)
 
-                                                        AtualizarStatus("Status: Download em andamento...")
+                                                        ' AtualizarStatus("Status: Download em andamento...")
                                                         Me.Invoke(Sub()
                                                                       Me.Cursor = Cursors.Default
                                                                       txtLog.Cursor = Cursors.Default
@@ -1611,18 +1618,32 @@ Public Class Form1
     '    End If
     'End Sub
 
-    Private Sub TimerClipboard_Tick(sender As Object, e As EventArgs) Handles TimerClipboard.Tick
+    Public Function ListViewContains(ByVal listView As ListView, ByVal linkProcurado As String) As Boolean
+        For Each item As ListViewItem In listView.Items
+            '  MsgBox($"Verificando item: {item.Tag.ToString} contra {linkProcurado}")
+
+            If item.Tag.ToString.Equals(linkProcurado, StringComparison.OrdinalIgnoreCase) Then
+                Return True ' Link encontrado
+            End If
+        Next
+        Return False ' Link não encontrado
+    End Function
+
+    Private Async Sub TimerClipboard_Tick(sender As Object, e As EventArgs) Handles TimerClipboard.Tick
         Try
             If Clipboard.ContainsText() Then
-                Dim textoAtual As String = Clipboard.GetText().Trim()
+                Dim linkDetected As String = Clipboard.GetText().Trim()
+                Debug.WriteLine($"Link detectado: {linkDetected}")
+                If linkDetected.StartsWith("http", StringComparison.OrdinalIgnoreCase) AndAlso linkDetected <> ultimoLinkDetectado AndAlso ListViewContains(lstLink, linkDetected) = False Then
 
-                If textoAtual.StartsWith("http", StringComparison.OrdinalIgnoreCase) AndAlso textoAtual <> ultimoLinkDetectado Then
-                    ultimoLinkDetectado = textoAtual
+                    ultimoLinkDetectado = linkDetected
 
-                    Dim resposta = MessageBox.Show($"Link detectado na área de transferência:{Environment.NewLine}{textoAtual}{Environment.NewLine}{Environment.NewLine}Deseja adicionar à lista de downloads?", "Novo Link Detectado", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
+                    Dim resposta = MessageBox.Show($"Link detectado na área de transferência:{Environment.NewLine}{linkDetected}{Environment.NewLine}{Environment.NewLine}Deseja adicionar à lista de downloads?", "Novo Link Detectado", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
 
                     If resposta = DialogResult.Yes Then
-                        addLink(textoAtual)
+                        Await addLink(linkDetected)
+                    Else
+                        ultimoLinkDetectado = String.Empty ' Limpa o link se o usuário não quiser adicionar
                     End If
                 End If
             End If
