@@ -708,7 +708,7 @@ Public Class Form1
                                                     If linha.Contains("[Merger] Merging formats into") Then
                                                         currentLinkPhase = CurrentDownloadPhase.Merging
                                                         Me.Invoke(Sub()
-                                                                      AtualizarStatus("Status: Finalizando...")
+                                                                      AtualizarStatus("Status: Aguarde...")
                                                                       progressBar.Value = 95 ' Fixa em 95% ou 99% para indicar quase lá
                                                                       Me.Cursor = Cursors.WaitCursor
                                                                       txtLog.Cursor = Cursors.WaitCursor
