@@ -118,6 +118,7 @@ Partial Class Form1
         progressBarDownload.BackColor = Color.DimGray
         progressBarDownload.ForeColor = Color.GreenYellow
         progressBarDownload.Location = New Point(12, 403)
+        progressBarDownload.Maximum = 200
         progressBarDownload.Name = "progressBarDownload"
         progressBarDownload.Size = New Size(491, 46)
         progressBarDownload.Style = ProgressBarStyle.Continuous
