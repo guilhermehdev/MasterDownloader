@@ -313,6 +313,7 @@ Public Class Form1
     End Function
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         TimerClipboard.Start()
+
         NotifyIcon1.Text = "PbPb Downloader"
         progressBarDownload.Location = New Point(12, 224)
         Me.Height = 335
@@ -498,6 +499,7 @@ Public Class Form1
 
         txtLog.Clear()
         StatusLabel.Text = "Status: Iniciando..."
+
         Application.DoEvents()
         Me.Cursor = Cursors.WaitCursor
 
@@ -607,6 +609,9 @@ Public Class Form1
             txtLog.AppendText(Environment.NewLine & $"[ERRO INESPERADO] {ex.Message}")
             StatusLabel.Text = "Status: Falha no download..."
             Application.DoEvents()
+            NotifyIcon1.BalloonTipTitle = "❌ Download Falhou"
+            NotifyIcon1.BalloonTipText = $"Ocorreu uma falha durante o download."
+            NotifyIcon1.ShowBalloonTip(2000)
             successOverall = False
         Finally
             canceladoPeloUsuario = False
@@ -629,10 +634,6 @@ Public Class Form1
             ElseIf canceladoPeloUsuario Then
                 NotifyIcon1.BalloonTipTitle = "⛔ Download Cancelado"
                 NotifyIcon1.BalloonTipText = $"O processo foi cancelado pelo usuário."
-                NotifyIcon1.ShowBalloonTip(2000)
-            Else
-                NotifyIcon1.BalloonTipTitle = "❌ Download Falhou"
-                NotifyIcon1.BalloonTipText = $"Ocorreu uma falha durante o download."
                 NotifyIcon1.ShowBalloonTip(2000)
             End If
             NotifyIcon1.Text = "PbPb Downloader"
@@ -666,6 +667,7 @@ Public Class Form1
         Dim proc = processoYtDlp
         proc.StartInfo = psi
         proc.EnableRaisingEvents = True
+        timerFakeProgress.Stop()
 
         AddHandler proc.OutputDataReceived, Sub(s, ev)
                                                 If ev.Data IsNot Nothing Then
@@ -674,10 +676,11 @@ Public Class Form1
                                                     ' --- Nova Lógica de Fases e Progresso ---
 
                                                     If linha.Contains("[download] Destination:") Then
+                                                        Me.Invoke(Sub() timerFakeProgress.Stop())
                                                         ' É o início de um novo arquivo sendo baixado (áudio ou vídeo)
                                                         If currentLinkPhase = CurrentDownloadPhase.Initial Then
                                                             currentLinkPhase = CurrentDownloadPhase.DownloadingPart1
-                                                            Me.Invoke(Sub() StatusLabel.Text = "Status: Baixando parte 1/2...")
+                                                            Me.Invoke(Sub() StatusLabel.Text = "Status: Download em progresso...")
                                                         ElseIf currentLinkPhase = CurrentDownloadPhase.DownloadingPart1 Then
                                                             currentLinkPhase = CurrentDownloadPhase.DownloadingPart2
                                                             Me.Invoke(Sub() StatusLabel.Text = "Status: Baixando parte 2/2...")
@@ -1381,92 +1384,158 @@ Public Class Form1
         canceladoPeloUsuario = True
 
         Task.Run(Sub()
-                     If processoYtDlp IsNot Nothing AndAlso Not processoYtDlp.HasExited Then
-                         Try
-                             processoYtDlp.Kill(entireProcessTree:=True)
-                             processoYtDlp.WaitForExit(3000)
-                             processoYtDlp.Dispose()
-                             processoYtDlp = Nothing
-
-                             Dim arquivosPart = Directory.GetFiles(pastaDestino, "*.part", SearchOption.TopDirectoryOnly)
-                             Dim arquivosVideo = arquivosPart.Where(Function(f) f.EndsWith(".mp4.part") OrElse f.EndsWith(".webm.part")).ToList()
-                             Dim arquivosAudio = arquivosPart.Where(Function(f) f.EndsWith(".m4a.part") OrElse (f.EndsWith(".webm.part") AndAlso Not f.EndsWith(".mp4.part"))).ToList()
-
-                             ' 1. Renomear .part para o nome final
-                             For Each arquivo In arquivosPart
-                                 Dim novoNome = Path.Combine(pastaDestino, Path.GetFileNameWithoutExtension(arquivo))
-                                 Try
-                                     File.Move(arquivo, novoNome)
-                                 Catch ex As Exception
-                                     Me.Invoke(Sub() txtLog.AppendText($"[ERRO ao renomear {Path.GetFileName(arquivo)}] {ex.Message}" & Environment.NewLine))
-                                 End Try
-                             Next
-
-                             ' 2. Atualizar listas agora sem ".part"
-                             arquivosVideo = Directory.GetFiles(pastaDestino, "*.mp4", SearchOption.TopDirectoryOnly).ToList()
-                             arquivosAudio = Directory.GetFiles(pastaDestino, "*.m4a", SearchOption.TopDirectoryOnly).ToList()
-
-
-                             For Each video In arquivosVideo
-                                 Dim nomeBase = Path.GetFileNameWithoutExtension(video).Replace(".mp4", "").Replace(".webm", "")
-                                 Dim audio = arquivosAudio.FirstOrDefault(Function(a) Path.GetFileNameWithoutExtension(a).Contains(nomeBase))
-
-                                 If Not String.IsNullOrEmpty(audio) Then
-                                     Dim outputFinal = Path.Combine(pastaDestino, nomeBase & "_merged.mp4")
-                                     Dim ffmpegPath = Path.Combine(Application.StartupPath, "app", "ffmpeg.exe")
-                                     Dim psi As New ProcessStartInfo(ffmpegPath, $"-y -i ""{video}"" -i ""{audio}"" -c copy ""{outputFinal}""") With {
-                                     .CreateNoWindow = True,
-                                     .UseShellExecute = False
-                                 }
-
-                                     Using ffmpegProc As Process = Process.Start(psi)
-                                         ffmpegProc.WaitForExit()
-                                     End Using
-
-                                     Try
-                                         File.Delete(video)
-                                         File.Delete(audio)
-                                     Catch ex As Exception
-                                         Me.Invoke(Sub() txtLog.AppendText($"[ERRO ao excluir .part] {ex.Message}" & Environment.NewLine))
-                                     End Try
-
-                                     Me.Invoke(Sub() txtLog.AppendText($"🎬 Merge finalizado: {Path.GetFileName(outputFinal)}" & Environment.NewLine))
-                                 End If
-                             Next
-
-                             Me.Invoke(Sub()
-                                           progressBarDownload.Value = 0
-                                           txtLog.AppendText(Environment.NewLine & "⛔ Download interrompido pelo usuário." & Environment.NewLine)
-                                           btCancelar.Enabled = False
-                                           btnExecutar.Enabled = True
-                                           StatusLabel.Text = "Status: Cancelado pelo usuário."
-                                           timerFakeProgress.Stop()
-                                       End Sub)
-
-                             If Directory.Exists(pastaDestino) AndAlso Directory.EnumerateFiles(pastaDestino).Any() Then
-                                 Process.Start("explorer.exe", pastaDestino)
-                             Else
-                                 Me.Invoke(Sub() txtLog.AppendText("⚠️ Nenhum arquivo parcial encontrado." & Environment.NewLine))
-                             End If
-
-                         Catch ex As Exception
-                             Me.Invoke(Sub()
-                                           txtLog.AppendText($"[ERRO ao parar o processo] {ex.Message}" & Environment.NewLine)
-                                           btCancelar.Enabled = False
-                                           btnExecutar.Enabled = True
-                                           timerFakeProgress.Stop()
-                                       End Sub)
-                         End Try
-                     Else
+                     Try
                          Me.Invoke(Sub()
-                                       txtLog.AppendText("⚠️ Nenhum processo ativo para interromper." & Environment.NewLine)
-                                       btCancelar.Enabled = False
-                                       btnExecutar.Enabled = True
+                                       StatusLabel.Text = "Status: Cancelando download..."
                                        timerFakeProgress.Stop()
+                                       Me.Cursor = Cursors.WaitCursor
                                    End Sub)
-                     End If
+
+                         ' Tenta matar o processo yt-dlp
+                         If processoYtDlp IsNot Nothing AndAlso Not processoYtDlp.HasExited Then
+                             Try
+                                 processoYtDlp.Kill(entireProcessTree:=True)
+                                 processoYtDlp.WaitForExit(3000)
+                                 processoYtDlp.Dispose()
+                                 processoYtDlp = Nothing
+                             Catch ex As Exception
+                                 Debug.WriteLine($"{ex.Message}" & Environment.NewLine)
+                             End Try
+
+                         End If
+
+                         ' Limpeza de arquivos .part
+                         Dim arquivosPart = Directory.GetFiles(pastaDestino, "*.part", SearchOption.TopDirectoryOnly)
+
+                         For Each arquivo In arquivosPart
+                             Try
+                                 cleanFiles()
+                             Catch ex As Exception
+                                 Me.Invoke(Sub()
+                                               txtLog.AppendText($"[ERRO ao deletar {Path.GetFileName(arquivo)}] {ex.Message}" & Environment.NewLine)
+                                           End Sub)
+                             End Try
+                         Next
+
+                         ' Limpa barra de progresso e atualiza interface
+                         Me.Invoke(Sub()
+                                       progressBarDownload.Value = 0
+                                       StatusLabel.Text = "Status: Download cancelado pelo usuário."
+                                       btnExecutar.Enabled = True
+                                       btCancelar.Enabled = False
+                                       Me.Cursor = Cursors.Default
+                                   End Sub)
+
+                         ' Feedback final ao usuário
+                         Me.Invoke(Sub()
+                                       NotifyIcon1.BalloonTipTitle = "⛔ Download Cancelado"
+                                       NotifyIcon1.BalloonTipText = "O processo de download foi interrompido."
+                                       NotifyIcon1.ShowBalloonTip(2000)
+                                   End Sub)
+
+                     Catch ex As Exception
+                         Me.Invoke(Sub()
+                                       txtLog.AppendText($"[ERRO inesperado no Cancelar] {ex.Message}" & Environment.NewLine)
+                                       StatusLabel.Text = "Status: Erro ao cancelar."
+                                       btnExecutar.Enabled = True
+                                       btCancelar.Enabled = False
+                                       Me.Cursor = Cursors.Default
+                                   End Sub)
+                     End Try
                  End Sub)
     End Sub
+
+
+    'Private Sub btCancelar_Click(sender As Object, e As EventArgs) Handles btCancelar.Click
+    '    canceladoPeloUsuario = True
+
+    '    Task.Run(Sub()
+    '                 If processoYtDlp IsNot Nothing AndAlso Not processoYtDlp.HasExited Then
+    '                     Try
+    '                         processoYtDlp.Kill(entireProcessTree:=True)
+    '                         processoYtDlp.WaitForExit(3000)
+    '                         processoYtDlp.Dispose()
+    '                         processoYtDlp = Nothing
+
+    '                         Dim arquivosPart = Directory.GetFiles(pastaDestino, "*.part", SearchOption.TopDirectoryOnly)
+    '                         Dim arquivosVideo = arquivosPart.Where(Function(f) f.EndsWith(".mp4.part") OrElse f.EndsWith(".webm.part")).ToList()
+    '                         Dim arquivosAudio = arquivosPart.Where(Function(f) f.EndsWith(".m4a.part") OrElse (f.EndsWith(".webm.part") AndAlso Not f.EndsWith(".mp4.part"))).ToList()
+
+    '                         ' 1. Renomear .part para o nome final
+    '                         For Each arquivo In arquivosPart
+    '                             Dim novoNome = Path.Combine(pastaDestino, Path.GetFileNameWithoutExtension(arquivo))
+    '                             Try
+    '                                 File.Move(arquivo, novoNome)
+    '                             Catch ex As Exception
+    '                                 Me.Invoke(Sub() txtLog.AppendText($"[ERRO ao renomear {Path.GetFileName(arquivo)}] {ex.Message}" & Environment.NewLine))
+    '                             End Try
+    '                         Next
+
+    '                         ' 2. Atualizar listas agora sem ".part"
+    '                         arquivosVideo = Directory.GetFiles(pastaDestino, "*.mp4", SearchOption.TopDirectoryOnly).ToList()
+    '                         arquivosAudio = Directory.GetFiles(pastaDestino, "*.m4a", SearchOption.TopDirectoryOnly).ToList()
+
+
+    '                         For Each video In arquivosVideo
+    '                             Dim nomeBase = Path.GetFileNameWithoutExtension(video).Replace(".mp4", "").Replace(".webm", "")
+    '                             Dim audio = arquivosAudio.FirstOrDefault(Function(a) Path.GetFileNameWithoutExtension(a).Contains(nomeBase))
+
+    '                             If Not String.IsNullOrEmpty(audio) Then
+    '                                 Dim outputFinal = Path.Combine(pastaDestino, nomeBase & "_merged.mp4")
+    '                                 Dim ffmpegPath = Path.Combine(Application.StartupPath, "app", "ffmpeg.exe")
+    '                                 Dim psi As New ProcessStartInfo(ffmpegPath, $"-y -i ""{video}"" -i ""{audio}"" -c copy ""{outputFinal}""") With {
+    '                                 .CreateNoWindow = True,
+    '                                 .UseShellExecute = False
+    '                             }
+
+    '                                 Using ffmpegProc As Process = Process.Start(psi)
+    '                                     ffmpegProc.WaitForExit()
+    '                                 End Using
+
+    '                                 Try
+    '                                     File.Delete(video)
+    '                                     File.Delete(audio)
+    '                                 Catch ex As Exception
+    '                                     Me.Invoke(Sub() txtLog.AppendText($"[ERRO ao excluir .part] {ex.Message}" & Environment.NewLine))
+    '                                 End Try
+
+    '                                 Me.Invoke(Sub() txtLog.AppendText($"🎬 Merge finalizado: {Path.GetFileName(outputFinal)}" & Environment.NewLine))
+    '                             End If
+    '                         Next
+
+    '                         Me.Invoke(Sub()
+    '                                       progressBarDownload.Value = 0
+    '                                       txtLog.AppendText(Environment.NewLine & "⛔ Download interrompido pelo usuário." & Environment.NewLine)
+    '                                       btCancelar.Enabled = False
+    '                                       btnExecutar.Enabled = True
+    '                                       StatusLabel.Text = "Status: Cancelado pelo usuário."
+    '                                       timerFakeProgress.Stop()
+    '                                   End Sub)
+
+    '                         If Directory.Exists(pastaDestino) AndAlso Directory.EnumerateFiles(pastaDestino).Any() Then
+    '                             Process.Start("explorer.exe", pastaDestino)
+    '                         Else
+    '                             Me.Invoke(Sub() txtLog.AppendText("⚠️ Nenhum arquivo parcial encontrado." & Environment.NewLine))
+    '                         End If
+
+    '                     Catch ex As Exception
+    '                         Me.Invoke(Sub()
+    '                                       txtLog.AppendText($"[ERRO ao parar o processo] {ex.Message}" & Environment.NewLine)
+    '                                       btCancelar.Enabled = False
+    '                                       btnExecutar.Enabled = True
+    '                                       timerFakeProgress.Stop()
+    '                                   End Sub)
+    '                     End Try
+    '                 Else
+    '                     Me.Invoke(Sub()
+    '                                   txtLog.AppendText("⚠️ Nenhum processo ativo para interromper." & Environment.NewLine)
+    '                                   btCancelar.Enabled = False
+    '                                   btnExecutar.Enabled = True
+    '                                   timerFakeProgress.Stop()
+    '                               End Sub)
+    '                 End If
+    '             End Sub)
+    'End Sub
 
     Private Sub ImportarCookiesPrivadosToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles ImportarCookiesPrivadosToolStripMenuItem.Click
         Dim saveFileDialog As New OpenFileDialog With {
