@@ -787,24 +787,25 @@ Public Class Form1
         AddHandler proc.ErrorDataReceived, Sub(s, ev)
                                                If ev.Data IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(ev.Data) Then
                                                    Dim linha = ev.Data.Trim().ToLower()
-
+                                                   Dim linhaOriginal = ev.Data
                                                    ' Termos típicos de HLS que queremos interceptar (e não registrar como erro fatal no log)
                                                    Dim termosHLS = New String() {
-                    "duration:", "stream mapping:", "metadata:", "stream #", "input #", "output #",
-                    "program ", "encoder", "lavf", "variant_bitrate", "timed_id3", "[hls @", "[mpegts @"
-                }
+                    "duration:", "stream mapping:", "metadata:", "stream #", "input #", "output #", "[https @",
+                    "program ", "encoder", "lavf", "variant_bitrate", "timed_id3", "[hls @", "[mpegts @", "size=", "chunklist", "skip ('#ext", "skipping", "press [q]", "[tls @", "io error"}
 
                                                    ' Palavras-chave de erro real
-                                                   Dim palavrasErroCritico = New String() {"error", "failed", "unable", "not found", "forbidden"}
+                                                   'Dim palavrasErroCritico = New String() {"error", "failed", "unable", "not found", "forbidden"}
 
                                                    ' Se for um erro crítico real
-                                                   If palavrasErroCritico.Any(Function(p) linha.Contains(p)) Then
-                                                       hasErrors = True
-                                                       Me.Invoke(Sub() txtLog.AppendText("[ERRO] " & ev.Data & Environment.NewLine))
-                                                       AtualizarStatus("Status: Erro!")
-                                                   ElseIf termosHLS.Any(Function(p) linha.Contains(p)) Then
-                                                       ' É um log técnico de HLS, não um erro real para o usuário.
-                                                       ' Podemos ignorar ou exibir de forma diferente.
+                                                   'If palavrasErroCritico.Any(Function(p) linha.Contains(p)) Then
+                                                   'asErrors = True
+                                                   'Invoke(Sub() txtLog.AppendText("[ERRO] " & ev.Data & Environment.NewLine))
+                                                   'AtualizarStatus("Status: Erro!")
+
+                                                   'If termosHLS.Any(Function(p) linha.Contains(p)) Then
+                                                   ' É um log técnico de HLS, não um erro real para o usuário.
+                                                   ' Podemos ignorar ou exibir de forma diferente.
+                                                   If termosHLS.Any(Function(p) linha.StartsWith(p) OrElse linha.Contains(p)) Then
                                                        Me.Invoke(Sub()
                                                                      Try
                                                                          Dim tamanho = ObterTamanhoDaPasta(My.Settings.destFolder)
@@ -812,19 +813,36 @@ Public Class Form1
                                                                          Dim tempoTexto = $"{tempoGravacao.Minutes:D2}:{tempoGravacao.Seconds:D2}"
 
                                                                          ' Remove a última linha, se já houver
-                                                                         If Not String.IsNullOrEmpty(ultimaLinhaHLS) AndAlso txtLog.Text.Contains(ultimaLinhaHLS) Then
+                                                                         'If Not String.IsNullOrEmpty(ultimaLinhaHLS) AndAlso txtLog.Text.Contains(ultimaLinhaHLS) Then
+                                                                         '    txtLog.Text = txtLog.Text.Replace(ultimaLinhaHLS, "")
+                                                                         'End If
+                                                                         If Not String.IsNullOrEmpty(ultimaLinhaHLS) Then
                                                                              txtLog.Text = txtLog.Text.Replace(ultimaLinhaHLS, "")
                                                                          End If
 
+                                                                         ultimaLinhaHLS = $"📡 Gravando stream HLS... Tempo: {tempoTexto} | Tamanho: {tamanho}" & Environment.NewLine
+
                                                                          ' Atualiza com nova linha de status
-                                                                         ultimaLinhaHLS = Environment.NewLine & $"📡 Capturando streaming... Tempo: {tempoTexto} | Tamanho: {tamanho}" & Environment.NewLine
+                                                                         ' ultimaLinhaHLS = Environment.NewLine & $"📡 Capturando streaming... Tempo: {tempoTexto} | Tamanho: {tamanho}" & Environment.NewLine
+
                                                                          txtLog.AppendText(ultimaLinhaHLS)
                                                                          AtualizarStatus($"Status: Gravando stream HLS... Tempo: {tempoTexto} | Tamanho atual: {tamanho}")
                                                                          NotifyIcon1.Text = $"Gravando stream HLS... Tempo: {tempoTexto} | Tamanho atual: {tamanho}"
                                                                      Catch ex As Exception
-
+                                                                         Debug.WriteLine($"[ERRO ao atualizar log HLS] {ex.Message}")
                                                                      End Try
                                                                  End Sub)
+                                                       Return
+                                                   End If
+
+                                                   Dim palavrasErroCritico = New String() {"error", "failed", "unable", "not found", "forbidden"}
+                                                   If palavrasErroCritico.Any(Function(p) linha.Contains(p)) Then
+                                                       hasErrors = True
+                                                       Me.Invoke(Sub()
+                                                                     txtLog.AppendText("[ERRO] " & linhaOriginal & Environment.NewLine)
+                                                                     AtualizarStatus("Status: Erro!")
+                                                                 End Sub)
+                                                       Return
                                                    End If
 
                                                    ' Lógica para ignorar logs de legendas durante a listagem
@@ -841,7 +859,15 @@ Public Class Form1
                                                    If Not ignorandoListaLegendas Then
                                                        Me.Invoke(Sub() txtLog.AppendText(ev.Data & Environment.NewLine))
                                                    End If
+
+
+                                                   ' --- Por fim: tudo que não for HLS nem erro crítico, vai normalmente para o log ---
+                                                   Me.Invoke(Sub()
+                                                                 txtLog.AppendText(linhaOriginal & Environment.NewLine)
+                                                             End Sub)
+
                                                End If
+
                                            End Sub
 
         ' Handler para quando o processo for finalizado
@@ -1193,7 +1219,7 @@ Public Class Form1
             progressBarDownload.Location = New Point(12, 407)
             Height = 520
         End If
-
+        'lstLink.EnsureVisible(lstLink.Items.Count - 1)
     End Sub
     Private Sub AlterarPastaDestinoToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles AlterarPastaDestinoToolStripMenuItem.Click
         Dim folderBrowser As New FolderBrowserDialog With {
@@ -1430,7 +1456,7 @@ Public Class Form1
         End If
     End Sub
     Private Sub timerFakeProgress_Tick(sender As Object, e As EventArgs) Handles timerFakeProgress.Tick
-        Debug.WriteLine("Atualizando barra de progresso fake...")
+
         If progressBarDownload.Value < progressBarDownload.Maximum Then
             progressBarDownload.Value += 1
         Else
@@ -1509,8 +1535,6 @@ Public Class Form1
 
                     If resposta = DialogResult.Yes Then
                         Await addLink(linkDetected)
-                    Else
-                        ultimoLinkDetectado = String.Empty ' Limpa o link se o usuário não quiser adicionar
                     End If
                 End If
             End If
