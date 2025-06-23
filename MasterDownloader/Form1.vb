@@ -511,6 +511,11 @@ Public Class Form1
         If linksList.Count = 0 Then
             MessageBox.Show("Nenhum link válido encontrado.")
             txtLog.AppendText(Environment.NewLine & "❌ Nenhum link válido encontrado." & Environment.NewLine)
+            btnExecutar.Enabled = True
+            btCancelar.Enabled = False
+            timerFakeProgress.Stop()
+            Me.Cursor = Cursors.Default
+            StatusLabel.Text = "Status: Pronto"
             Exit Sub
         End If
 
