@@ -8,7 +8,7 @@ Imports System.Threading.Tasks
 Imports System.Windows.Forms.LinkLabel
 
 Public Class Form1
-    Private downloadFilePath As String = Application.StartupPath & "\download.txt"
+    Dim downloadFilePath As String = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PbPb Downloader", "download.txt")
     Private pastaDestino As String = IO.Path.Combine(Application.StartupPath, My.Settings.destFolder)
     Private batFilePath As String = Application.StartupPath & "\run.bat"
     Private totalLinks As Integer = 0
@@ -317,7 +317,20 @@ Public Class Form1
         End Using
     End Function
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
-        ' timerFakeProgress.Start()
+        Dim txtDownload As String = Path.GetDirectoryName(downloadFilePath)
+        If Not Directory.Exists(txtDownload) Then
+            Directory.CreateDirectory(txtDownload)
+        End If
+        Dim caminhoDestino = Path.Combine(
+    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+    "PbPb Downloader",
+    "downloaded")
+
+        If String.IsNullOrWhiteSpace(My.Settings.destFolder) Then
+            My.Settings.destFolder = caminhoDestino
+            My.Settings.Save()
+        End If
+
         NotifyIcon1.Text = "PbPb Downloader"
         progressBarDownload.Location = New Point(12, 224)
         Me.Height = 335

@@ -14,15 +14,14 @@ WizardStyle=modern
 Source: "E:\Desktop\MasterDownloader\MasterDownloader\bin\Debug\net8.0-windows\PbPb Downloader.exe"; DestDir: "{app}"; Flags: ignoreversion
 
 ; Copiar o arquivo download.txt (se quiser incluir um inicial)
-Source: "E:\Desktop\MasterDownloader\MasterDownloader\bin\Debug\net8.0-windows\download.txt"; DestDir: "{app}"; Flags: ignoreversion
-
-; Source: "E:\Desktop\MasterDownloader\MasterDownloader\bin\Debug\net8.0-windows\PbPb Downloader.dll"; DestDir: "{app}"; Flags: ignoreversion
+;Source: "E:\Desktop\MasterDownloader\MasterDownloader\bin\Debug\net8.0-windows\download.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "E:\Desktop\MasterDownloader\MasterDownloader\bin\Debug\net8.0-windows\download.txt"; DestDir: "{localappdata}\PbPb Downloader"; Flags: onlyifdoesntexist
 
 ; Copiar toda a pasta "app" (yt-dlp.exe, ffmpeg.exe, etc)
 Source: "E:\Desktop\MasterDownloader\MasterDownloader\bin\Debug\net8.0-windows\app\*"; DestDir: "{app}\app"; Flags: recursesubdirs createallsubdirs ignoreversion
 
-[Dirs]
-Name: "{app}\downloaded"
+;[Dirs]
+;Name: "{app}\downloaded"
 
 
 [Icons]

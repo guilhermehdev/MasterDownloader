@@ -3,7 +3,7 @@
   <Profiles />
   <Settings>
     <Setting Name="destFolder" Type="System.String" Scope="User">
-      <Value Profile="(Default)">downloaded</Value>
+      <Value Profile="(Default)" />
     </Setting>
   </Settings>
 </SettingsFile>
