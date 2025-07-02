@@ -1036,6 +1036,8 @@ Public Class Form1
             My.Settings.Save()
             My.Settings.Upgrade()
             txtLog.AppendText($"🗂️ Pasta de destino alterada para: {My.Settings.destFolder}" & Environment.NewLine)
+            Application.Restart()
+            'Environment.Exit(0)
         End If
 
     End Sub
