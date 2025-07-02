@@ -10,6 +10,8 @@ Imports System.Windows.Forms.LinkLabel
 Public Class Form1
     Dim downloadFilePath As String = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PbPb Downloader", "download.txt")
     Dim cookiesFilePath As String = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PbPb Downloader", "cookies.txt")
+    Dim archiveFilePath As String = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PbPb Downloader", "archive.txt")
+
     Private pastaDestino As String = IO.Path.Combine(Application.StartupPath, My.Settings.destFolder)
     Private batFilePath As String = Application.StartupPath & "\run.bat"
     Private totalLinks As Integer = 0
@@ -122,12 +124,51 @@ Public Class Form1
             txtLog.AppendText($"[ERRO ao remover link do arquivo] {ex.Message}" & Environment.NewLine)
         End Try
     End Sub
+    Private Function IsCanal(link As String) As Boolean
+        Return link.Contains("youtube.com/@") OrElse link.Contains("youtube.com/c/") OrElse link.Contains("channel/")
+    End Function
+    Private Async Function BaixarCanal(linkCanal As String) As Task
+        Dim argsCanal As New StringBuilder()
+
+        If Not linkCanal.Trim().ToLower().EndsWith("/videos") Then
+            If linkCanal.Contains("?") Then
+                ' Se tiver parâmetros no final (ex: /@canal?sub_confirmation=1), remove e adiciona /videos
+                linkCanal = linkCanal.Substring(0, linkCanal.IndexOf("?"))
+            End If
+            If Not linkCanal.EndsWith("/") Then linkCanal &= "/"
+            linkCanal &= "videos"
+        End If
+
+        argsCanal.Append("--yes-playlist ")
+        argsCanal.Append("--extractor-args ""youtubetab:skip=authcheck"" ")
+        argsCanal.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best ")
+        argsCanal.Append("--merge-output-format mp4 ")
+        argsCanal.Append($"--cookies ""{cookiesFilePath}"" ")
+        argsCanal.Append("--no-warnings ")
+        argsCanal.Append("--output """ & My.Settings.destFolder & "\%(title)s.%(ext)s"" ")
+        argsCanal.Append($"--download-archive ""{archiveFilePath}"" ")
+        argsCanal.Append("""" & linkCanal & """ ")
+
+        Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsCanal.ToString())
+    End Function
 
     Private Async Function ContarVideosNaPlaylist(url As String) As Task(Of (Integer, String))
         Dim ytDlpPath As String = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
+        Dim args As String = ""
+
+        If IsCanal(url) Then
+            AdicionarTituloNaListView(url)
+            btCancelar.Enabled = True
+            btnExecutar.Enabled = False
+            Await BaixarCanal(url)
+        Else
+            ' Se for uma playlist normal ou vídeo, usamos o formato padrão
+            args = $"--dump-json --no-warnings --cookies ""{cookiesFilePath}"" ""{url}"""
+        End If
+
         Dim psi As New ProcessStartInfo With {
         .FileName = ytDlpPath,
-        .Arguments = $"--dump-json --no-warnings --cookies ""cookies.txt"" ""{url}""",
+        .Arguments = args,
         .UseShellExecute = False,
         .RedirectStandardOutput = True,
         .RedirectStandardError = True,
