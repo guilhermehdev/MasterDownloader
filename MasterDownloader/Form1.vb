@@ -9,6 +9,7 @@ Imports System.Windows.Forms.LinkLabel
 
 Public Class Form1
     Dim downloadFilePath As String = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PbPb Downloader", "download.txt")
+    Dim cookiesFilePath As String = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PbPb Downloader", "cookies.txt")
     Private pastaDestino As String = IO.Path.Combine(Application.StartupPath, My.Settings.destFolder)
     Private batFilePath As String = Application.StartupPath & "\run.bat"
     Private totalLinks As Integer = 0
@@ -90,7 +91,7 @@ Public Class Form1
         End If
     End Sub
     Private Sub LimparArquivoDownload()
-        Dim caminho As String = Path.Combine(Application.StartupPath, "download.txt")
+        Dim caminho As String = downloadFilePath
         Try
             File.WriteAllText(caminho, String.Empty)
             txtLog.AppendText(Environment.NewLine & "🧹 Arquivo limpo com sucesso!" & Environment.NewLine)
@@ -564,7 +565,7 @@ Public Class Form1
                 Dim args As New StringBuilder()
                 ' Definindo argumentos base para yt-dlp
                 args.Append($"--output ""{My.Settings.destFolder}\%(title)s.%(ext)s"" ""{link}"" ")
-                args.Append("--cookies ""cookies.txt"" ")
+                args.Append($"--cookies ""{cookiesFilePath}"" ")
                 args.Append("--no-warnings ")
                 args.Append("--progress --newline --no-mtime ") ' Manter essas para o parser
 
@@ -1255,9 +1256,9 @@ Public Class Form1
             Dim cookiesPath As String = saveFileDialog.FileName
             If Not String.IsNullOrEmpty(cookiesPath) Then
                 If File.Exists(cookiesPath) Then
-                    File.Delete(Path.Combine(Application.StartupPath, "cookies.txt")) ' Remove o arquivo antigo, se existir
+                    File.Delete(cookiesFilePath) ' Remove o arquivo antigo, se existir
                 End If
-                FileCopy(cookiesPath, Path.Combine(Application.StartupPath, "cookies.txt"))
+                FileCopy(cookiesPath, cookiesFilePath)
                 MsgBox("Cookies privados importados com sucesso!", MsgBoxStyle.Information, "Importação de Cookies")
                 txtLog.AppendText($"🍪 Cookies privados importados com sucesso: {cookiesPath}" & Environment.NewLine)
             End If
