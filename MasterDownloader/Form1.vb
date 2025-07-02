@@ -103,7 +103,7 @@ Public Class Form1
     End Sub
     Private Sub RemoverLinkEspecificoDoArquivo(linkParaRemover As String)
         Try
-            Dim caminho As String = Path.Combine(Application.StartupPath, "download.txt")
+            Dim caminho As String = downloadFilePath
 
             If File.Exists(caminho) Then
                 ' Lê todas as linhas
@@ -317,6 +317,41 @@ Public Class Form1
                       End Sub)
         End Using
     End Function
+
+    Private Async Function DetectarMelhorFormato(link As String) As Task(Of String)
+        Dim psi As New ProcessStartInfo With {
+        .FileName = "app\yt-dlp.exe",
+        .Arguments = $"-F ""{link}""",
+        .RedirectStandardOutput = True,
+        .RedirectStandardError = True,
+        .UseShellExecute = False,
+        .CreateNoWindow = True
+    }
+
+        Dim formatosDisponiveis As New List(Of String)
+        Using proc As Process = Process.Start(psi)
+            While Not proc.StandardOutput.EndOfStream
+                Dim linha As String = Await proc.StandardOutput.ReadLineAsync()
+                If linha IsNot Nothing AndAlso linha.Contains("mp4") Then
+                    formatosDisponiveis.Add(linha.ToLower())
+                End If
+            End While
+            proc.WaitForExit()
+        End Using
+
+        Dim temVideoMp4 As Boolean = formatosDisponiveis.Any(Function(l) l.Contains("video") AndAlso l.Contains("mp4"))
+        Dim temAudioM4a As Boolean = formatosDisponiveis.Any(Function(l) l.Contains("audio") AndAlso l.Contains("m4a"))
+        Dim temBestMp4 As Boolean = formatosDisponiveis.Any(Function(l) l.Contains("mp4") AndAlso l.Contains("best"))
+
+        If temVideoMp4 AndAlso temAudioM4a Then
+            Return "--format ""bestvideo[ext=mp4]+bestaudio[ext=m4a]"""
+        ElseIf temBestMp4 Then
+            Return "--format ""best[ext=mp4]"""
+        Else
+            Return "--format ""best"""
+        End If
+    End Function
+
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         Dim txtDownload As String = Path.GetDirectoryName(downloadFilePath)
         If Not Directory.Exists(txtDownload) Then
@@ -610,6 +645,7 @@ Public Class Form1
                     End If
                 End If
 
+                args.Append("--format ""bestvideo+bestaudio/best"" ")
                 ' Agora executamos o processo para o link atual
                 If canceladoPeloUsuario Then Exit For ' Verifica cancelamento antes de executar
                 If Await ExecutarProcessoAsync(txtLog, progressBarDownload, args.ToString()) Then
