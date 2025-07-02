@@ -322,10 +322,7 @@ Public Class Form1
         If Not Directory.Exists(txtDownload) Then
             Directory.CreateDirectory(txtDownload)
         End If
-        Dim caminhoDestino = Path.Combine(
-    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-    "PbPb Downloader",
-    "downloaded")
+        Dim caminhoDestino = My.Computer.FileSystem.SpecialDirectories.Desktop
 
         If String.IsNullOrWhiteSpace(My.Settings.destFolder) Then
             My.Settings.destFolder = caminhoDestino
