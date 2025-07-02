@@ -43,15 +43,23 @@ Public Class Form1
                 MessageBox.Show("arquivo não encontrado.")
                 Return
             End If
-            StatusLabel.Text = "Status: Adicionando link..."
-            Application.DoEvents()
-            btnExecutar.Enabled = False
-            Me.Cursor = Cursors.WaitCursor
-            File.AppendAllText(downloadFilePath, link & Environment.NewLine)
+            If Not IsCanal(link) Then
+                StatusLabel.Text = "Status: Adicionando link..."
+                Application.DoEvents()
+                btnExecutar.Enabled = False
+                Me.Cursor = Cursors.WaitCursor
+                File.AppendAllText(downloadFilePath, link & Environment.NewLine)
+            Else
+                AdicionarTituloNaListView(link)
+                txtUrl.Clear()
+                Return
+            End If
+
             txtUrl.Clear()
+
         End If
 
-        Dim links = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
+            Dim links = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
         If links.Count = 0 Then
             txtLog.AppendText("⚠️ Nenhum link encontrado no arquivo." & Environment.NewLine)
             btnExecutar.Enabled = True
@@ -127,7 +135,7 @@ Public Class Form1
     Private Function IsCanal(link As String) As Boolean
         Return link.Contains("youtube.com/@") OrElse link.Contains("youtube.com/c/") OrElse link.Contains("channel/")
     End Function
-    Private Async Function BaixarCanal(linkCanal As String) As Task
+    Private Async Function BaixarCanal(linkCanal As String) As Task(Of Boolean)
         Dim argsCanal As New StringBuilder()
 
         If Not linkCanal.Trim().ToLower().EndsWith("/videos") Then
@@ -149,7 +157,12 @@ Public Class Form1
         argsCanal.Append($"--download-archive ""{archiveFilePath}"" ")
         argsCanal.Append("""" & linkCanal & """ ")
 
-        Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsCanal.ToString())
+        If Await ExecutarProcessoAsync(txtLog, progressBarDownload, argsCanal.ToString()) Then
+            Return True
+        Else
+            Return False
+        End If
+
     End Function
 
     Private Async Function ContarVideosNaPlaylist(url As String) As Task(Of (Integer, String))
@@ -158,9 +171,6 @@ Public Class Form1
 
         If IsCanal(url) Then
             AdicionarTituloNaListView(url)
-            btCancelar.Enabled = True
-            btnExecutar.Enabled = False
-            Await BaixarCanal(url)
         Else
             ' Se for uma playlist normal ou vídeo, usamos o formato padrão
             args = $"--dump-json --no-warnings --cookies ""{cookiesFilePath}"" ""{url}"""
@@ -588,8 +598,8 @@ Public Class Form1
         txtLog.Clear()
         Application.DoEvents()
 
-
         Dim successOverall As Boolean = True ' Para rastrear se todos os downloads tiveram sucesso
+
         Dim linksList As New List(Of String)()
         If File.Exists(downloadFilePath) Then
             linksList = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
@@ -641,6 +651,17 @@ Public Class Form1
                 args.Append($"--cookies ""{cookiesFilePath}"" ")
                 args.Append("--no-warnings ")
                 args.Append("--progress --newline --no-mtime ") ' Manter essas para o parser
+
+                If IsCanal(link) Then
+                    ' Se for um canal, vamos baixar todos os vídeos
+                    If Await BaixarCanal(link) Then
+                        MarcarItemComoOK(linkOriginal)
+                        linksConcluidos += 1
+                    Else
+                        successOverall = False
+                    End If
+                    Continue For ' Próximo link
+                End If
 
                 If IsHLS(link) Then
                     timerFakeProgress.Start() ' Seu timer para HLS
