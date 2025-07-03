@@ -35,7 +35,6 @@ Public Class Form1
     End Enum
     Private currentLinkPhase As CurrentDownloadPhase = CurrentDownloadPhase.Initial
     ' ----------------------------------------------------------------------
-
     Private Async Function addLink(ByVal link As String) As Task
 
         If link <> "" Then
@@ -51,6 +50,7 @@ Public Class Form1
                 File.AppendAllText(downloadFilePath, link & Environment.NewLine)
             Else
                 AdicionarTituloNaListView(link)
+                File.AppendAllText(downloadFilePath, link & Environment.NewLine)
                 txtUrl.Clear()
                 Return
             End If
@@ -171,9 +171,15 @@ Public Class Form1
 
         If IsCanal(url) Then
             AdicionarTituloNaListView(url)
+            args = $"--dump-json --no-warnings --flat-playlist --cookies ""{cookiesFilePath}"" --extractor-args ""youtubetab:skip=authcheck"" ""{url}"""
         Else
             ' Se for uma playlist normal ou vídeo, usamos o formato padrão
             args = $"--dump-json --no-warnings --cookies ""{cookiesFilePath}"" ""{url}"""
+        End If
+
+        If String.IsNullOrWhiteSpace(args) Then
+            txtLog.AppendText("[ERRO] Argumentos do yt-dlp não foram definidos para a URL fornecida." & Environment.NewLine)
+            Return (0, " [ERRO] - Falha ao processar URL")
         End If
 
         Dim psi As New ProcessStartInfo With {
@@ -605,7 +611,7 @@ Public Class Form1
             linksList = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
         End If
 
-        If linksList.Count = 0 Then
+        If linksList.Count = 0 And lstLink.Items.Count = 0 Then
             MessageBox.Show("Nenhum link válido encontrado.")
             txtLog.AppendText(Environment.NewLine & "❌ Nenhum link válido encontrado." & Environment.NewLine)
             btnExecutar.Enabled = True
