@@ -867,6 +867,8 @@ Public Class Form1
                                                         Dim percentEtapa As Integer = CInt(Math.Floor(Double.Parse(percentText, Globalization.CultureInfo.InvariantCulture)))
                                                         percentEtapa = Math.Min(percentEtapa, 100) ' Garante que não exceda 100
 
+
+
                                                         ' Lógica para mapear o progresso da etapa para o progresso do link completo (0-100)
                                                         Dim progressoLink As Integer = 0
                                                         Select Case currentLinkPhase
@@ -879,14 +881,10 @@ Public Class Form1
                                                             Case Else ' Se for um download de arquivo único, ou HLS
                                                                 progressoLink = percentEtapa
                                                         End Select
-
+                                                        ' AtualizarStatus("Status: Download em andamento...")
                                                         Me.Invoke(Sub()
                                                                       progressBar.Value = Math.Min(progressoLink, progressBar.Maximum)
                                                                       AtualizarNotifyIconProgresso()
-                                                                  End Sub)
-
-                                                        ' AtualizarStatus("Status: Download em andamento...")
-                                                        Me.Invoke(Sub()
                                                                       Me.Cursor = Cursors.Default
                                                                       txtLog.Cursor = Cursors.Default
                                                                       chkLegendas.Enabled = False
@@ -1410,18 +1408,8 @@ Public Class Form1
             porcentagem = CInt((progressBarDownload.Value / progressBarDownload.Maximum) * 100)
         End If
 
-        NotifyIcon1.Text = $"Download: {porcentagem}% completo"
+        NotifyIcon1.Text = $"Download: {porcentagem}% completo {vbCrLf}{StatusLabel.Text}"
     End Sub
-
-    'Private Sub MonitorarClipboardTelegram()
-    '    Dim texto As String = Clipboard.GetText()
-
-    '    If texto.StartsWith("https://t.me/") OrElse texto.Contains("t.me/") Then
-    '        If MessageBox.Show($"📋 Link do Telegram detectado:{Environment.NewLine}{texto}{Environment.NewLine}{Environment.NewLine}Deseja adicionar à lista de downloads?", "Novo Link Detectado", MessageBoxButtons.YesNo, MessageBoxIcon.Question) = DialogResult.Yes Then
-    '            addLink(texto)
-    '        End If
-    '    End If
-    'End Sub
 
     Public Function ListViewContains(ByVal listView As ListView, ByVal linkProcurado As String) As Boolean
         For Each item As ListViewItem In listView.Items
@@ -1462,7 +1450,6 @@ Public Class Form1
             chkLegendas.Enabled = True
         End If
     End Sub
-
     Private Sub chkLegendas_CheckedChanged(sender As Object, e As EventArgs) Handles chkLegendas.CheckedChanged
         If chkLegendas.Checked Then
             CheckBoxAudio.Enabled = False
