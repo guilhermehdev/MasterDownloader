@@ -42,24 +42,23 @@ Public Class Form1
                 MessageBox.Show("arquivo não encontrado.")
                 Return
             End If
-            If Not IsCanal(link) Then
-                StatusLabel.Text = "Status: Adicionando link..."
-                Application.DoEvents()
-                btnExecutar.Enabled = False
-                Me.Cursor = Cursors.WaitCursor
-                File.AppendAllText(downloadFilePath, link & Environment.NewLine)
-            Else
-                AdicionarTituloNaListView(link)
-                File.AppendAllText(downloadFilePath, link & Environment.NewLine)
-                txtUrl.Clear()
-                Return
-            End If
-
+            ' If Not IsCanal(link) Then
+            StatusLabel.Text = "Status: Adicionando link..."
+            Application.DoEvents()
+            btnExecutar.Enabled = False
+            Me.Cursor = Cursors.WaitCursor
+            File.AppendAllText(downloadFilePath, link & Environment.NewLine)
+            'Else
+            ' AdicionarTituloNaListView(link)
+            'File.AppendAllText(downloadFilePath, link & Environment.NewLine)
             txtUrl.Clear()
+            '    Return
+            'End If
+
+            ' txtUrl.Clear()
 
         End If
-
-            Dim links = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
+        Dim links = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
         If links.Count = 0 Then
             txtLog.AppendText("⚠️ Nenhum link encontrado no arquivo." & Environment.NewLine)
             btnExecutar.Enabled = True
@@ -114,6 +113,8 @@ Public Class Form1
     Private Sub RemoverLinkEspecificoDoArquivo(linkParaRemover As String)
         Try
             Dim caminho As String = downloadFilePath
+
+            MsgBox($"Removendo link: {linkParaRemover}", MsgBoxStyle.Information, "Remover Link")
 
             If File.Exists(caminho) Then
                 ' Lê todas as linhas
@@ -170,8 +171,7 @@ Public Class Form1
         Dim args As String = ""
 
         If IsCanal(url) Then
-            AdicionarTituloNaListView(url)
-            args = $"--dump-json --no-warnings --flat-playlist --cookies ""{cookiesFilePath}"" --extractor-args ""youtubetab:skip=authcheck"" ""{url}"""
+            args = $"--dump-json --no-warnings --playlist-items 1 --cookies ""{cookiesFilePath}"" --extractor-args ""youtubetab:skip=authcheck"" ""{url}"""
         Else
             ' Se for uma playlist normal ou vídeo, usamos o formato padrão
             args = $"--dump-json --no-warnings --cookies ""{cookiesFilePath}"" ""{url}"""
@@ -201,6 +201,7 @@ Public Class Form1
         Dim totalVideos As Integer = 1
         Dim titulo As String = "Título desconhecido"
         Dim origem As String = ""
+        Dim nomeCanal As String = ""
 
         Try
             If jsonSaida.Contains("entries") Then
@@ -220,11 +221,28 @@ Public Class Form1
                 origem = matchSite.Groups(1).Value
             End If
 
+            Dim matchCanal = Regex.Match(jsonSaida, """channel"":\s*""([^""]+)""")
+            If matchCanal.Success Then
+                nomeCanal = matchCanal.Groups(1).Value
+            Else
+                ' Fallback para "uploader", caso "channel" não esteja presente
+                Dim matchUploader = Regex.Match(jsonSaida, """uploader"":\s*""([^""]+)""")
+                If matchUploader.Success Then
+                    nomeCanal = matchUploader.Groups(1).Value
+                End If
+            End If
+
         Catch ex As Exception
             txtLog.AppendText($"[ERRO JSON] {ex.Message}" & Environment.NewLine)
         End Try
 
-        Return (Math.Max(1, totalVideos), " [" & origem & "] - " & titulo)
+        If IsCanal(url) Then
+            MsgBox(nomeCanal)
+            Return (Math.Max(1, totalVideos), " [" & origem & "] - Canal: " & nomeCanal)
+        Else
+            Return (Math.Max(1, totalVideos), " [" & origem & "] - " & titulo)
+        End If
+
     End Function
     Private Function UnescapeUnicode(input As String) As String
         Return System.Text.RegularExpressions.Regex.Replace(
@@ -408,6 +426,18 @@ Public Class Form1
             Return "--format ""best"""
         End If
     End Function
+    Private Sub LimparArquivoDeHistorico()
+        Dim archivePath = archiveFilePath
+        If File.Exists(archivePath) Then
+            Try
+                File.WriteAllText(archivePath, String.Empty)
+                txtLog.AppendText("🧹 Histórico de vídeos baixados limpo com sucesso." & Environment.NewLine)
+            Catch ex As Exception
+                txtLog.AppendText("[ERRO] Falha ao limpar o arquivo archive.txt: " & ex.Message & Environment.NewLine)
+            End Try
+        End If
+    End Sub
+
 
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
         Dim txtDownload As String = Path.GetDirectoryName(downloadFilePath)
@@ -663,6 +693,10 @@ Public Class Form1
                     If Await BaixarCanal(link) Then
                         MarcarItemComoOK(linkOriginal)
                         linksConcluidos += 1
+                        Dim resposta = MessageBox.Show($"Excluir histórico de videos baixados?", "Atenção", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
+                        If resposta = DialogResult.Yes Then
+                            LimparArquivoDeHistorico()
+                        End If
                     Else
                         successOverall = False
                     End If
