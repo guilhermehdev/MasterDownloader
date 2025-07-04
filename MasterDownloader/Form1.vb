@@ -245,8 +245,8 @@ Public Class Form1
                 End If
             End If
 
-            Dim caminhoDump As String = Path.Combine(Application.StartupPath, "dump_yt-dlp.json")
-            File.WriteAllText(caminhoDump, jsonSaida)
+            ' Dim caminhoDump As String = Path.Combine(Application.StartupPath, "dump_yt-dlp.json")
+            'File.WriteAllText(caminhoDump, jsonSaida)
 
         Catch ex As Exception
             txtLog.AppendText($"[ERRO JSON] {ex.Message}" & Environment.NewLine)
