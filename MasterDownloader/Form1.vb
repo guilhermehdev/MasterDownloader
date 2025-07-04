@@ -1,11 +1,8 @@
-﻿Imports System.Diagnostics
-Imports System.IO
-Imports System.Runtime.InteropServices.JavaScript.JSType
-Imports System.Security.Policy
+﻿Imports System.IO
 Imports System.Text
 Imports System.Text.RegularExpressions
-Imports System.Threading.Tasks
 Imports System.Windows.Forms.LinkLabel
+Imports Newtonsoft.Json.Linq
 
 Public Class Form1
     Dim downloadFilePath As String = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PbPb Downloader", "download.txt")
@@ -165,6 +162,11 @@ Public Class Form1
         End If
 
     End Function
+    Private Function ExtrairCampo(json As String, campo As String) As String
+        Dim m = Regex.Match(json, $"""{campo}"":\s*""([^""]+)""")
+        If m.Success Then Return m.Groups(1).Value
+        Return ""
+    End Function
 
     Private Async Function ContarVideosNaPlaylist(url As String) As Task(Of (Integer, String))
         Dim ytDlpPath As String = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
@@ -173,7 +175,6 @@ Public Class Form1
         If IsCanal(url) Then
             args = $"--dump-json --no-warnings --playlist-items 1 --cookies ""{cookiesFilePath}"" --extractor-args ""youtubetab:skip=authcheck"" ""{url}"""
         Else
-            ' Se for uma playlist normal ou vídeo, usamos o formato padrão
             args = $"--dump-json --no-warnings --cookies ""{cookiesFilePath}"" ""{url}"""
         End If
 
@@ -205,45 +206,140 @@ Public Class Form1
 
         Try
             If jsonSaida.Contains("entries") Then
-                ' É playlist
+                ' Conta quantos vídeos tem
                 Dim entradas = Regex.Matches(jsonSaida, "\{""id"":")
                 totalVideos = entradas.Count
             End If
 
-            ' Captura o título da playlist ou do vídeo
-            Dim matchTitulo = Regex.Match(jsonSaida, """title"":\s*""([^""]+)""")
-            If matchTitulo.Success Then
-                titulo = matchTitulo.Groups(1).Value
-            End If
+            ' Pega o título da playlist ou vídeo
+            'Dim matchTitulo = Regex.Match(jsonSaida, """title""\s*:\s*""(([^""]|\""|\\)*)""")
 
+            'If matchTitulo.Success Then
+            '    titulo = matchTitulo.Groups(1).Value
+            'End If
+
+            Dim jsonObj As JObject = JObject.Parse(jsonSaida)
+            titulo = jsonObj.Value(Of String)("title")
+
+            ' Pega o site de origem
             Dim matchSite = Regex.Match(jsonSaida, """extractor_key"":\s*""([^""]+)""")
             If matchSite.Success Then
                 origem = matchSite.Groups(1).Value
             End If
 
-            Dim matchCanal = Regex.Match(jsonSaida, """channel"":\s*""([^""]+)""")
+            ' Pega o nome do canal (vários possíveis)
+            Dim matchCanal = Regex.Match(jsonSaida, """playlist_uploader"":\s*""([^""]+)""")
             If matchCanal.Success Then
                 nomeCanal = matchCanal.Groups(1).Value
             Else
-                ' Fallback para "uploader", caso "channel" não esteja presente
+                ' Tenta pegar o uploader
                 Dim matchUploader = Regex.Match(jsonSaida, """uploader"":\s*""([^""]+)""")
                 If matchUploader.Success Then
                     nomeCanal = matchUploader.Groups(1).Value
+                Else
+                    ' Tenta pegar o nome do canal de outra forma
+                    Dim matchChannelId = Regex.Match(jsonSaida, """channel_id"":\s*""([^""]+)""")
+                    If matchChannelId.Success Then
+                        nomeCanal = matchChannelId.Groups(1).Value
+                    End If
                 End If
             End If
+
+            Dim caminhoDump As String = Path.Combine(Application.StartupPath, "dump_yt-dlp.json")
+            File.WriteAllText(caminhoDump, jsonSaida)
 
         Catch ex As Exception
             txtLog.AppendText($"[ERRO JSON] {ex.Message}" & Environment.NewLine)
         End Try
 
         If IsCanal(url) Then
-            MsgBox(nomeCanal)
             Return (Math.Max(1, totalVideos), " [" & origem & "] - Canal: " & nomeCanal)
         Else
             Return (Math.Max(1, totalVideos), " [" & origem & "] - " & titulo)
         End If
 
+
     End Function
+
+
+    'Private Async Function ContarVideosNaPlaylist(url As String) As Task(Of (Integer, String))
+    '    Dim ytDlpPath As String = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
+    '    Dim args As String = ""
+
+    '    If IsCanal(url) Then
+    '        args = $"--dump-json --no-warnings --playlist-items 1 --cookies ""{cookiesFilePath}"" --extractor-args ""youtubetab:skip=authcheck"" ""{url}"""
+    '    Else
+    '        ' Se for uma playlist normal ou vídeo, usamos o formato padrão
+    '        args = $"--dump-json --no-warnings --cookies ""{cookiesFilePath}"" ""{url}"""
+    '    End If
+
+    '    If String.IsNullOrWhiteSpace(args) Then
+    '        txtLog.AppendText("[ERRO] Argumentos do yt-dlp não foram definidos para a URL fornecida." & Environment.NewLine)
+    '        Return (0, " [ERRO] - Falha ao processar URL")
+    '    End If
+
+    '    Dim psi As New ProcessStartInfo With {
+    '    .FileName = ytDlpPath,
+    '    .Arguments = args,
+    '    .UseShellExecute = False,
+    '    .RedirectStandardOutput = True,
+    '    .RedirectStandardError = True,
+    '    .CreateNoWindow = True
+    '}
+
+    '    Dim jsonSaida As String = ""
+
+    '    Using proc As Process = Process.Start(psi)
+    '        jsonSaida = Await proc.StandardOutput.ReadToEndAsync()
+    '        proc.WaitForExit()
+    '    End Using
+
+    '    Dim totalVideos As Integer = 1
+    '    Dim titulo As String = "Título desconhecido"
+    '    Dim origem As String = ""
+    '    Dim nomeCanal As String = ""
+
+    '    Try
+    '        If jsonSaida.Contains("entries") Then
+    '            ' É playlist
+    '            Dim entradas = Regex.Matches(jsonSaida, "\{""id"":")
+    '            totalVideos = entradas.Count
+    '        End If
+
+    '        ' Captura o título da playlist ou do vídeo
+    '        Dim matchTitulo = Regex.Match(jsonSaida, """title"":\s*""([^""]+)""")
+    '        If matchTitulo.Success Then
+    '            titulo = matchTitulo.Groups(1).Value
+    '        End If
+
+    '        Dim matchSite = Regex.Match(jsonSaida, """extractor_key"":\s*""([^""]+)""")
+    '        If matchSite.Success Then
+    '            origem = matchSite.Groups(1).Value
+    '        End If
+
+    '        Dim matchCanal = Regex.Match(jsonSaida, """channel"":\s*""([^""]+)""")
+    '        If matchCanal.Success Then
+    '            nomeCanal = matchCanal.Groups(1).Value
+    '        Else
+    '            ' Fallback para "uploader", caso "channel" não esteja presente
+    '            Dim matchUploader = Regex.Match(jsonSaida, """uploader"":\s*""([^""]+)""")
+    '            If matchUploader.Success Then
+    '                nomeCanal = matchUploader.Groups(1).Value
+    '            End If
+    '        End If
+
+    '    Catch ex As Exception
+    '        txtLog.AppendText($"[ERRO JSON] {ex.Message}" & Environment.NewLine)
+    '    End Try
+
+    '    If IsCanal(url) Then
+    '        MsgBox(nomeCanal)
+    '        Return (Math.Max(1, totalVideos), " [" & origem & "] - Canal: " & nomeCanal)
+    '    Else
+    '        Return (Math.Max(1, totalVideos), " [" & origem & "] - " & titulo)
+    '    End If
+
+    'End Function
     Private Function UnescapeUnicode(input As String) As String
         Return System.Text.RegularExpressions.Regex.Replace(
         input,
