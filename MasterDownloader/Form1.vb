@@ -1,4 +1,5 @@
 ﻿Imports System.IO
+Imports System.Collections.Concurrent
 Imports System.Text
 Imports System.Text.RegularExpressions
 Imports System.Windows.Forms.LinkLabel
@@ -9,18 +10,37 @@ Public Class Form1
     Dim cookiesFilePath As String = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PbPb Downloader", "cookies.txt")
     Dim archiveFilePath As String = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PbPb Downloader", "archive.txt")
 
-    Private pastaDestino As String = IO.Path.Combine(Application.StartupPath, My.Settings.destFolder)
+    Private pastaDestino As String = Application.StartupPath
     Private batFilePath As String = Application.StartupPath & "\run.bat"
     Private totalLinks As Integer = 0
     Private linksConcluidos As Integer = 0
+    Private totalLinksNaFila As Integer = 0
     Private processoYtDlp As Process = Nothing
     Private ultimaLinhaHLS As String = ""
     Private ultimaLinhaPlaylist As String = ""
     Private inicioHLS As DateTime
     Private progressoAtualLink As Integer = 0
     Private canceladoPeloUsuario As Boolean = False
+    Private downloadEmAndamento As Boolean = False
+    Private verificacaoAtualizacaoEmAndamento As Boolean = False
     Private ultimoLinkDetectado As String = ""
     Private currentDownloadLink As String = ""
+    Private linkAtualEhLive As Boolean = False
+    Private encerrandoLive As Boolean = False
+    Private liveSalvaAoEncerrar As Boolean = False
+    Private liveArquivoEmGravacao As String = ""
+    Private ReadOnly liveCapturas As New ConcurrentDictionary(Of String, LiveCaptureJob)(StringComparer.OrdinalIgnoreCase)
+
+    Private Class LiveCaptureJob
+        Public Property Link As String = ""
+        Public Property Process As Process
+        Public Property OutputPath As String = ""
+        Public Property StopRequested As Boolean
+        Public Property LastLogLine As String = ""
+        Public Property Task As Task(Of Boolean)
+        Public Property Succeeded As Boolean
+        Public Property StartedAt As DateTime
+    End Class
 
     ' --- NOVO: Variáveis para controle de fases dentro de um único link ---
     Private Enum CurrentDownloadPhase
@@ -32,13 +52,58 @@ Public Class Form1
     End Enum
     Private currentLinkPhase As CurrentDownloadPhase = CurrentDownloadPhase.Initial
     ' ----------------------------------------------------------------------
+    Private Sub ConfigurarPastaDestino()
+        Dim destinoConfigurado = My.Settings.destFolder
+        If String.IsNullOrWhiteSpace(destinoConfigurado) Then
+            destinoConfigurado = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory)
+            My.Settings.destFolder = destinoConfigurado
+            My.Settings.Save()
+        End If
+
+        If Path.IsPathRooted(destinoConfigurado) Then
+            pastaDestino = Path.GetFullPath(destinoConfigurado)
+        Else
+            pastaDestino = Path.GetFullPath(Path.Combine(Application.StartupPath, destinoConfigurado))
+        End If
+        Directory.CreateDirectory(pastaDestino)
+    End Sub
+
+    Private Async Function VerificarAtualizacaoAutomaticaYTDLP() As Task
+        Dim diretorioDados = Path.GetDirectoryName(downloadFilePath)
+        Dim arquivoUltimaVerificacao = Path.Combine(diretorioDados, "yt-dlp-last-check.txt")
+        Dim ultimaVerificacao As DateTime
+
+        verificacaoAtualizacaoEmAndamento = True
+        btnAdicionar.Enabled = False
+        btnExecutar.Enabled = False
+        Try
+            If File.Exists(arquivoUltimaVerificacao) AndAlso
+               DateTime.TryParse(File.ReadAllText(arquivoUltimaVerificacao),
+                                 Globalization.CultureInfo.InvariantCulture,
+                                 Globalization.DateTimeStyles.RoundtripKind,
+                                 ultimaVerificacao) Then
+                Dim horasDesdeVerificacao = (DateTime.UtcNow - ultimaVerificacao.ToUniversalTime()).TotalHours
+                If horasDesdeVerificacao >= 0 AndAlso horasDesdeVerificacao < 24 Then Return
+            End If
+
+            If Await VerificarAtualizacaoYTDLP(silenciosa:=True) Then
+                File.WriteAllText(arquivoUltimaVerificacao, DateTime.UtcNow.ToString("O", Globalization.CultureInfo.InvariantCulture))
+            End If
+        Catch ex As Exception
+            ' Uma falha de rede ou de gravação do controle não deve impedir o app de abrir.
+            txtLog.AppendText($"[AVISO] Não foi possível concluir a verificação automática do yt-dlp: {ex.Message}{Environment.NewLine}")
+        Finally
+            verificacaoAtualizacaoEmAndamento = False
+            btnAdicionar.Enabled = True
+            btnExecutar.Enabled = True
+        End Try
+    End Function
     Private Async Function addLink(ByVal link As String) As Task
+        If downloadEmAndamento OrElse verificacaoAtualizacaoEmAndamento Then Return
 
         If link <> "" Then
-            If Not File.Exists(downloadFilePath) Then
-                MessageBox.Show("arquivo não encontrado.")
-                Return
-            End If
+            Directory.CreateDirectory(Path.GetDirectoryName(downloadFilePath))
+            If Not File.Exists(downloadFilePath) Then File.WriteAllText(downloadFilePath, String.Empty)
             ' If Not IsCanal(link) Then
             StatusLabel.Text = "Status: Adicionando link..."
             Application.DoEvents()
@@ -79,12 +144,43 @@ Public Class Form1
         Await addLink(txtUrl.Text.Trim())
     End Sub
     Private Sub MarcarItemComoOK(linkOriginal As String)
+        AtualizarStatusLink(linkOriginal, "OK")
+    End Sub
+
+    Private Sub AtualizarStatusLink(linkOriginal As String, status As String)
         For Each item As ListViewItem In lstLink.Items
             If item.Tag IsNot Nothing AndAlso item.Tag.ToString().Equals(linkOriginal, StringComparison.OrdinalIgnoreCase) Then
-                item.SubItems(1).Text = "OK"
+                item.SubItems(1).Text = status
+                item.SubItems(3).Text = If(status.Equals("Gravando", StringComparison.OrdinalIgnoreCase) OrElse status.Equals("Encerrando", StringComparison.OrdinalIgnoreCase), "⏹", "🗑️")
                 Exit For
             End If
         Next
+    End Sub
+
+    Private Sub AtualizarDadosLiveNaLista(captura As LiveCaptureJob)
+        Dim item = lstLink.Items.Cast(Of ListViewItem)().FirstOrDefault(Function(linha) linha.Tag IsNot Nothing AndAlso linha.Tag.ToString().Equals(captura.Link, StringComparison.OrdinalIgnoreCase))
+        If item Is Nothing OrElse item.SubItems.Count <= 2 Then Return
+
+        Dim tempo = DateTime.Now - captura.StartedAt
+        Dim tempoTexto = $"{CInt(Math.Floor(tempo.TotalMinutes)):00}:{tempo.Seconds:00}"
+        Dim tamanhoTexto = "? MB"
+        Try
+            If Not String.IsNullOrWhiteSpace(captura.OutputPath) AndAlso File.Exists(captura.OutputPath) Then
+                Dim megabytes = New FileInfo(captura.OutputPath).Length / 1024.0 / 1024.0
+                tamanhoTexto = $"{megabytes:0.00} MB"
+            End If
+        Catch
+        End Try
+        item.SubItems(2).Text = $"{tempoTexto} | {tamanhoTexto}"
+    End Sub
+
+    Private Sub AtualizarStatusCapturasLives()
+        Dim quantidade = liveCapturas.Count
+        If quantidade > 0 Then
+            AtualizarStatus($"Status: Gravando {quantidade} de 2 lives...")
+        ElseIf downloadEmAndamento AndAlso Not canceladoPeloUsuario Then
+            AtualizarStatus("Status: Finalizando capturas de live...")
+        End If
     End Sub
 
     Private Sub AtualizarStatus(texto As String)
@@ -147,11 +243,11 @@ Public Class Form1
 
         argsCanal.Append("--yes-playlist ")
         argsCanal.Append("--extractor-args ""youtubetab:skip=authcheck"" ")
-        argsCanal.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best ")
+        argsCanal.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best/bestvideo ")
         argsCanal.Append("--merge-output-format mp4 ")
         argsCanal.Append($"--cookies ""{cookiesFilePath}"" ")
         argsCanal.Append("--no-warnings ")
-        argsCanal.Append("--output """ & My.Settings.destFolder & "\%(title)s.%(ext)s"" ")
+        argsCanal.Append("--output """ & pastaDestino & "\%(title)s.%(ext)s"" ")
         argsCanal.Append($"--download-archive ""{archiveFilePath}"" ")
         argsCanal.Append("""" & linkCanal & """ ")
 
@@ -168,6 +264,55 @@ Public Class Form1
         Return ""
     End Function
 
+    Private Sub ConverterArgumentosSeparados(info As ProcessStartInfo, linhaDeComando As String)
+        Dim argumentos As New List(Of String)()
+        Dim indice As Integer = 0
+
+        While indice < linhaDeComando.Length
+            While indice < linhaDeComando.Length AndAlso Char.IsWhiteSpace(linhaDeComando(indice))
+                indice += 1
+            End While
+            If indice >= linhaDeComando.Length Then Exit While
+
+            Dim valor As New StringBuilder()
+            Dim entreAspas As Boolean = False
+            While indice < linhaDeComando.Length
+                If linhaDeComando(indice) = "\"c Then
+                    Dim inicioBarras = indice
+                    While indice < linhaDeComando.Length AndAlso linhaDeComando(indice) = "\"c
+                        indice += 1
+                    End While
+                    Dim quantidadeBarras = indice - inicioBarras
+                    If indice < linhaDeComando.Length AndAlso linhaDeComando(indice) = """"c Then
+                        valor.Append("\"c, quantidadeBarras \ 2)
+                        If quantidadeBarras Mod 2 = 0 Then
+                            entreAspas = Not entreAspas
+                        Else
+                            valor.Append(""""c)
+                        End If
+                        indice += 1
+                    Else
+                        valor.Append("\"c, quantidadeBarras)
+                    End If
+                ElseIf linhaDeComando(indice) = """"c Then
+                    entreAspas = Not entreAspas
+                    indice += 1
+                ElseIf Char.IsWhiteSpace(linhaDeComando(indice)) AndAlso Not entreAspas Then
+                    Exit While
+                Else
+                    valor.Append(linhaDeComando(indice))
+                    indice += 1
+                End If
+            End While
+
+            argumentos.Add(valor.ToString())
+        End While
+
+        info.Arguments = String.Empty
+        For Each argumento In argumentos
+            info.ArgumentList.Add(argumento)
+        Next
+    End Sub
     Private Async Function ContarVideosNaPlaylist(url As String) As Task(Of (Integer, String))
         Dim ytDlpPath As String = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
         Dim args As String = ""
@@ -188,15 +333,16 @@ Public Class Form1
         .Arguments = args,
         .UseShellExecute = False,
         .RedirectStandardOutput = True,
-        .RedirectStandardError = True,
+        .RedirectStandardError = False,
         .CreateNoWindow = True
     }
 
         Dim jsonSaida As String = ""
+        ConverterArgumentosSeparados(psi, args)
 
         Using proc As Process = Process.Start(psi)
             jsonSaida = Await proc.StandardOutput.ReadToEndAsync()
-            proc.WaitForExit()
+            Await proc.WaitForExitAsync()
         End Using
 
         Dim totalVideos As Integer = 1
@@ -351,6 +497,7 @@ Public Class Form1
         Dim item As New ListViewItem(titulo)
         item.Tag = linkOriginal
         item.SubItems.Add("Em fila")
+        item.SubItems.Add("")
         item.SubItems.Add("🗑️")
         lstLink.Items.Add(item)
         TimerClipboard.Start()
@@ -364,9 +511,15 @@ Public Class Form1
             Dim colunaClicada As Integer = info.Item.SubItems.IndexOf(info.SubItem)
 
             ' Supondo que a coluna 2 (índice 2) seja a coluna "Ação"
-            If colunaClicada = 2 Then
+            If colunaClicada = 3 Then
+                Dim linkOriginal As String = If(info.Item.Tag Is Nothing, "", info.Item.Tag.ToString())
+                If info.Item.SubItems(1).Text.Equals("Gravando", StringComparison.OrdinalIgnoreCase) Then
+                    PararLiveDaLinha(linkOriginal)
+                    Return
+                End If
+
+                If downloadEmAndamento Then Return
                 Dim titulo As String = info.Item.Text
-                Dim linkOriginal As String = info.Item.Tag.ToString() ' Link escondido na coluna 1 (invisível)
 
                 ' Confirma antes de excluir
                 If MessageBox.Show($"Deseja excluir o item: {titulo} ?", "Confirmação", MessageBoxButtons.YesNo, MessageBoxIcon.Question) = DialogResult.Yes Then
@@ -400,43 +553,63 @@ Public Class Form1
         Return titulo
     End Function
 
-    Private Async Function VerificarAtualizacaoYTDLP() As Task
-        AtualizarStatus("Status: Verificando atualizações...")
+    Private Async Function VerificarAtualizacaoYTDLP(Optional silenciosa As Boolean = False) As Task(Of Boolean)
+        If Not silenciosa Then AtualizarStatus("Status: Verificando atualizações...")
         Dim psi As New ProcessStartInfo With {
-        .FileName = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe"),
-        .Arguments = "--update",
-        .UseShellExecute = False,
-        .RedirectStandardOutput = True,
-        .RedirectStandardError = True,
-        .CreateNoWindow = True
-    }
-        Dim output As String
-        Dim errors As String
+            .FileName = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe"),
+            .UseShellExecute = False,
+            .RedirectStandardOutput = True,
+            .RedirectStandardError = True,
+            .CreateNoWindow = True
+        }
+        ConverterArgumentosSeparados(psi, "--update")
 
-        Using proc As Process = Process.Start(psi)
-            output = Await proc.StandardOutput.ReadToEndAsync()
-            errors = Await proc.StandardError.ReadToEndAsync()
-            txtLog.AppendText($"[Verificação de atualização yt-dlp]{Environment.NewLine}{output}{errors}{Environment.NewLine}")
-            proc.WaitForExit()
-        End Using
+        Try
+            Using proc As Process = Process.Start(psi)
+                Dim outputTask = proc.StandardOutput.ReadToEndAsync()
+                Dim errorsTask = proc.StandardError.ReadToEndAsync()
+                Dim waitTask = proc.WaitForExitAsync()
+                If Await Task.WhenAny(waitTask, Task.Delay(TimeSpan.FromSeconds(30))) IsNot waitTask Then
+                    Try
+                        proc.Kill(entireProcessTree:=True)
+                    Catch
+                    End Try
+                    Await waitTask
+                    Await outputTask
+                    Await errorsTask
+                    Throw New TimeoutException("A verificação de atualização excedeu 30 segundos.")
+                End If
 
-        If output.Contains("yt-dlp is up to date") Then
-            AtualizarStatus("Status: Sistema está na última versão.")
-        ElseIf output.Contains("Updated yt-dlp") Then
-            AtualizarStatus("Status: Sistema atualizado com sucesso!")
-        ElseIf output.Contains("ERROR") Then
-            AtualizarStatus("Status: Falha ao atualizar!")
-        End If
+                Dim output = Await outputTask
+                Dim errors = Await errorsTask
+                Dim resultado = output & errors
+                If proc.ExitCode <> 0 Then
+                    txtLog.AppendText($"[ERRO ao atualizar yt-dlp]{Environment.NewLine}{resultado}{Environment.NewLine}")
+                    If Not silenciosa Then AtualizarStatus("Status: Falha ao atualizar o yt-dlp. Consulte o log.")
+                    Return False
+                End If
 
-        Await Task.Delay(3000)
-        AtualizarStatus("Status: Pronto...")
-
+                If resultado.IndexOf("Updated yt-dlp", StringComparison.OrdinalIgnoreCase) >= 0 Then
+                    txtLog.AppendText($"[yt-dlp atualizado]{Environment.NewLine}{resultado}{Environment.NewLine}")
+                    If Not silenciosa Then AtualizarStatus("Status: yt-dlp atualizado.")
+                ElseIf Not silenciosa Then
+                    txtLog.AppendText($"[Verificação de atualização yt-dlp]{Environment.NewLine}{resultado}{Environment.NewLine}")
+                    AtualizarStatus("Status: yt-dlp já está atualizado.")
+                End If
+                Return True
+            End Using
+        Catch ex As Exception
+            txtLog.AppendText($"[ERRO ao atualizar yt-dlp] {ex.Message}{Environment.NewLine}")
+            If Not silenciosa Then AtualizarStatus("Status: Falha ao atualizar o yt-dlp.")
+            Return False
+        Finally
+            If Not silenciosa Then AtualizarStatus("Status: Pronto...")
+        End Try
     End Function
-
     Private Async Function CarregarLegendasDisponiveis(link As String) As Task
         Dim psi As New ProcessStartInfo With {
         .FileName = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe"),
-        .Arguments = $"--list-subs ""{link}"" --cookies ""cookies.txt"" --no-warnings",
+        .Arguments = $"--list-subs --cookies ""{cookiesFilePath}"" --no-warnings ""{link}""",
         .UseShellExecute = False,
         .RedirectStandardOutput = True,
         .RedirectStandardError = True,
@@ -444,48 +617,57 @@ Public Class Form1
         .RedirectStandardInput = True
     }
 
+        ConverterArgumentosSeparados(psi, $"--list-subs --cookies ""{cookiesFilePath}"" --no-warnings ""{link}""")
         Using proc As Process = Process.Start(psi)
-            Dim output As String = Await proc.StandardOutput.ReadToEndAsync()
-            Dim errors As String = Await proc.StandardError.ReadToEndAsync()
-            proc.WaitForExit()
-            proc.Close()
+            processoYtDlp = proc
+            Dim outputTask = proc.StandardOutput.ReadToEndAsync()
+            Dim errorsTask = proc.StandardError.ReadToEndAsync()
+            Try
+                Dim output As String = Await outputTask
+                Dim errors As String = Await errorsTask
+                Await proc.WaitForExitAsync()
+                If canceladoPeloUsuario Then Return
+                proc.Close()
 
-            ' txtLog.AppendText(Environment.NewLine & $"[Legendas disponíveis]{Environment.NewLine}{output}{errors}{Environment.NewLine}")
+                ' txtLog.AppendText(Environment.NewLine & $"[Legendas disponíveis]{Environment.NewLine}{output}{errors}{Environment.NewLine}")
 
-            Me.Invoke(Sub()
-                          FormLegendas.cmbLegendas.Items.Clear()
+                Me.Invoke(Sub()
+                              FormLegendas.cmbLegendas.Items.Clear()
 
-                          Dim linhas = output.Split({Environment.NewLine}, StringSplitOptions.RemoveEmptyEntries)
+                              Dim linhas = output.Split({Environment.NewLine}, StringSplitOptions.RemoveEmptyEntries)
 
-                          Dim startParsing As Boolean = False
+                              Dim startParsing As Boolean = False
 
-                          For Each linha In linhas
-                              linha = linha.Trim()
+                              For Each linha In linhas
+                                  linha = linha.Trim()
 
-                              ' Começa só depois do cabeçalho "Language formats"
-                              If linha.StartsWith("Language") Then
-                                  startParsing = True
-                                  Continue For
-                              End If
-
-                              If Not startParsing Then Continue For
-
-                              ' Filtro: Só pega linhas que comecem com código de idioma válido (ex: en, pt, es, etc)
-                              If System.Text.RegularExpressions.Regex.IsMatch(linha, "^[a-z]{2}(\-[a-z]{2})?\s", RegexOptions.IgnoreCase) Then
-                                  Dim partes = linha.Split(New Char() {" "c}, StringSplitOptions.RemoveEmptyEntries)
-                                  If partes.Length > 0 AndAlso Not FormLegendas.cmbLegendas.Items.Contains(partes(0)) Then
-                                      FormLegendas.cmbLegendas.Items.Add(partes(0)) ' Exemplo: "en", "pt", "es"
+                                  ' Começa só depois do cabeçalho "Language formats"
+                                  If linha.StartsWith("Language") Then
+                                      startParsing = True
+                                      Continue For
                                   End If
-                              End If
-                          Next
 
-                          If FormLegendas.cmbLegendas.Items.Count > 0 Then
-                              FormLegendas.cmbLegendas.SelectedIndex = 0
-                          Else
-                              FormLegendas.cmbLegendas.Items.Add("auto (gerada automaticamente)")
-                              'FormLegendas.cmbLegendas.SelectedIndex = 0
-                          End If
-                      End Sub)
+                                  If Not startParsing Then Continue For
+
+                                  ' Filtro: Só pega linhas que comecem com código de idioma válido (ex: en, pt, es, etc)
+                                  If System.Text.RegularExpressions.Regex.IsMatch(linha, "^[a-z]{2}(\-[a-z]{2})?\s", RegexOptions.IgnoreCase) Then
+                                      Dim partes = linha.Split(New Char() {" "c}, StringSplitOptions.RemoveEmptyEntries)
+                                      If partes.Length > 0 AndAlso Not FormLegendas.cmbLegendas.Items.Contains(partes(0)) Then
+                                          FormLegendas.cmbLegendas.Items.Add(partes(0)) ' Exemplo: "en", "pt", "es"
+                                      End If
+                                  End If
+                              Next
+
+                              If FormLegendas.cmbLegendas.Items.Count > 0 Then
+                                  FormLegendas.cmbLegendas.SelectedIndex = 0
+                              Else
+                                  FormLegendas.cmbLegendas.Items.Add("auto (gerada automaticamente)")
+                                  'FormLegendas.cmbLegendas.SelectedIndex = 0
+                              End If
+                          End Sub)
+            Finally
+                If Object.ReferenceEquals(processoYtDlp, proc) Then processoYtDlp = Nothing
+            End Try
         End Using
     End Function
 
@@ -494,12 +676,13 @@ Public Class Form1
         .FileName = "app\yt-dlp.exe",
         .Arguments = $"-F ""{link}""",
         .RedirectStandardOutput = True,
-        .RedirectStandardError = True,
+        .RedirectStandardError = False,
         .UseShellExecute = False,
         .CreateNoWindow = True
     }
 
         Dim formatosDisponiveis As New List(Of String)
+        ConverterArgumentosSeparados(psi, $"-F ""{link}""")
         Using proc As Process = Process.Start(psi)
             While Not proc.StandardOutput.EndOfStream
                 Dim linha As String = Await proc.StandardOutput.ReadLineAsync()
@@ -507,7 +690,7 @@ Public Class Form1
                     formatosDisponiveis.Add(linha.ToLower())
                 End If
             End While
-            proc.WaitForExit()
+            Await proc.WaitForExitAsync()
         End Using
 
         Dim temVideoMp4 As Boolean = formatosDisponiveis.Any(Function(l) l.Contains("video") AndAlso l.Contains("mp4"))
@@ -536,29 +719,22 @@ Public Class Form1
 
 
     Private Async Sub Form1_Load(sender As Object, e As EventArgs) Handles MyBase.Load
-        Dim txtDownload As String = Path.GetDirectoryName(downloadFilePath)
-        If Not Directory.Exists(txtDownload) Then
-            Directory.CreateDirectory(txtDownload)
-        End If
-        Dim caminhoDestino = My.Computer.FileSystem.SpecialDirectories.Desktop
-
-        If String.IsNullOrWhiteSpace(My.Settings.destFolder) Then
-            My.Settings.destFolder = caminhoDestino
-            My.Settings.Save()
-        End If
-
+        Directory.CreateDirectory(Path.GetDirectoryName(downloadFilePath))
+        If Not File.Exists(downloadFilePath) Then File.WriteAllText(downloadFilePath, String.Empty)
+        ConfigurarPastaDestino()
+        Await VerificarAtualizacaoAutomaticaYTDLP()
         NotifyIcon1.Text = "PbPb Downloader"
         progressBarDownload.Location = New Point(12, 224)
         Me.Height = 335
-        AddHandler timerFakeProgress.Tick, AddressOf timerFakeProgress_Tick
-        lstLink.Columns.Add("Título", 400)
-        lstLink.Columns.Add("Status", 50)
+        lstLink.Columns.Add("Título", 240)
+        lstLink.Columns.Add("Status", 80)
+        lstLink.Columns.Add("Tempo | Tamanho", 120)
         lstLink.Columns.Add("Action", 40)
 
         If File.Exists(downloadFilePath) Then
             AtualizarStatus("Status: Processando links...")
             btnExecutar.Enabled = False
-            Dim links = File.ReadAllLines(downloadFilePath)
+            Dim links = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToArray()
 
             For Each link In links
                 Dim videoData = Await ContarVideosNaPlaylist(link)
@@ -588,74 +764,63 @@ Public Class Form1
 
     End Sub
     Private Sub BtLimparLista_Click(sender As Object, e As EventArgs) Handles btLimparLista.Click
+        If downloadEmAndamento Then Return
         LimparArquivoDownload()
     End Sub
-    Private Function IsHLS(link As String) As Boolean
-        Try
-
-            Dim ytDlpPath As String = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
-            Dim psi As New ProcessStartInfo() With {
+    Private Async Function ObterMetadadosLinkAsync(link As String) As Task(Of JObject)
+        Dim ytDlpPath = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
+        Dim psi As New ProcessStartInfo With {
             .FileName = ytDlpPath,
-            .Arguments = $"--dump-json --no-warnings --playlist-items 1 {link}",
+            .Arguments = $"--dump-single-json --skip-download --playlist-items 1 --no-warnings --cookies ""{cookiesFilePath}"" ""{link}""",
             .UseShellExecute = False,
             .RedirectStandardOutput = True,
             .RedirectStandardError = True,
             .CreateNoWindow = True
         }
 
-            Using proc As Process = Process.Start(psi)
-                Dim output As String = proc.StandardOutput.ReadToEnd()
-                proc.WaitForExit()
-
-                If output.Contains("""is_live"": true") Then
-                    Return True
+        ConverterArgumentosSeparados(psi, $"--dump-single-json --skip-download --playlist-items 1 --no-warnings --cookies ""{cookiesFilePath}"" ""{link}""")
+        Using proc As New Process With {.StartInfo = psi}
+            proc.Start()
+            processoYtDlp = proc
+            Dim outputTask = proc.StandardOutput.ReadToEndAsync()
+            Dim errorTask = proc.StandardError.ReadToEndAsync()
+            Dim waitTask = proc.WaitForExitAsync()
+            Try
+                If Await Task.WhenAny(waitTask, Task.Delay(TimeSpan.FromSeconds(30))) IsNot waitTask Then
+                    proc.Kill(entireProcessTree:=True)
+                    Await waitTask
+                    Await outputTask
+                    Await errorTask
+                    Throw New TimeoutException("A consulta dos dados do link excedeu 30 segundos.")
                 End If
 
-                If output.Contains("""live_status"": ""is_live""") Then
-                    Return True
+                Dim output = Await outputTask
+                Dim errors = Await errorTask
+                If canceladoPeloUsuario Then Throw New OperationCanceledException("Consulta cancelada pelo usuário.")
+                If proc.ExitCode <> 0 Then
+                    Throw New InvalidOperationException(If(String.IsNullOrWhiteSpace(errors), "yt-dlp não conseguiu ler os dados do link.", errors.Trim()))
                 End If
-            End Using
-
-        Catch ex As Exception
-            txtLog.Invoke(Sub() txtLog.AppendText($"[ERRO ao detectar protocolo HLS] {ex.Message}" & Environment.NewLine))
-        End Try
-
-        Return False
+                Return JObject.Parse(output)
+            Finally
+                If Object.ReferenceEquals(processoYtDlp, proc) Then processoYtDlp = Nothing
+            End Try
+        End Using
     End Function
-    Private Function IsPlaylist(link As String) As Boolean
-        Try
-            Dim ytDlpPath As String = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe")
-            Dim psi As New ProcessStartInfo() With {
-            .FileName = ytDlpPath,
-            .Arguments = $"--dump-single-json --no-warnings --playlist-items 1 {link}",
-            .UseShellExecute = False,
-            .RedirectStandardOutput = True,
-            .RedirectStandardError = True,
-            .CreateNoWindow = True
-        }
-
-            Using proc As Process = Process.Start(psi)
-                Dim output As String = proc.StandardOutput.ReadToEnd()
-                proc.WaitForExit()
-
-                If output.Contains("""_type"": ""playlist""") Then
-                    Return True
-                End If
-            End Using
-        Catch ex As Exception
-            txtLog.Invoke(Sub() txtLog.AppendText($"[ERRO ao detectar Playlist] {ex.Message}" & Environment.NewLine))
-        End Try
-
-        Return False
+    Private Function MetadadosIndicamLive(metadados As JObject) As Boolean
+        Return String.Equals(CStr(metadados("live_status")), "is_live", StringComparison.OrdinalIgnoreCase) OrElse
+               (metadados("is_live") IsNot Nothing AndAlso metadados("is_live").Value(Of Boolean)())
     End Function
 
+    Private Function MetadadosIndicamPlaylist(metadados As JObject) As Boolean
+        Return String.Equals(CStr(metadados("_type")), "playlist", StringComparison.OrdinalIgnoreCase)
+    End Function
     Private Function onlyAudio(link)
         Dim argsAudio As New StringBuilder()
         argsAudio.Append("--extract-audio --audio-format mp3 ")
         argsAudio.Append("--format bestaudio/best ")
-        argsAudio.Append($"--output ""{My.Settings.destFolder}\%(title)s.%(ext)s"" ""{link}"" ")
+        argsAudio.Append($"--output ""{pastaDestino}\%(title)s.%(ext)s"" ""{link}"" ")
         argsAudio.Append("--ignore-errors ")
-        argsAudio.Append("--cookies ""cookies.txt"" ")
+        argsAudio.Append($"--cookies ""{cookiesFilePath}"" ")
         ' argsAudio.Append("--cookies-from-browser chrome ")
         argsAudio.Append("--no-warnings ")
 
@@ -669,58 +834,8 @@ Public Class Form1
         Return argsLeg
     End Function
 
-    Private Sub cleanFiles()
-        Dim extensoesPermitidas = New String() {".mp4", ".mp3"}
-        Dim totalDeletados As Integer = 0
-
-        Try
-            Dim arquivos = Directory.GetFiles(pastaDestino, "*.*", SearchOption.TopDirectoryOnly)
-
-            For Each arquivo In arquivos
-                Dim ext As String = Path.GetExtension(arquivo).ToLower()
-                Dim nomeArquivo As String = Path.GetFileName(arquivo).ToLower()
-
-                Dim deveExcluir As Boolean = False
-
-                ' Excluir se a extensão não for mp4 nem mp3
-                If Not extensoesPermitidas.Contains(ext) Then
-                    deveExcluir = True
-                End If
-
-                ' Excluir também arquivos com ".fXXX.mp4" no nome (ex: .f135.mp4, .f136.mp4, etc)
-                If ext = ".mp4" AndAlso Regex.IsMatch(nomeArquivo, "\.f\d{3,}\.mp4$") Then
-                    deveExcluir = True
-                End If
-
-                ' Excluir também qualquer .part, .json, .vtt, .temp ou outros conhecidos
-                If nomeArquivo.EndsWith(".part") OrElse
-               nomeArquivo.EndsWith(".json") OrElse
-               nomeArquivo.EndsWith(".vtt") OrElse
-               nomeArquivo.EndsWith(".temp") OrElse
-               nomeArquivo.EndsWith(".m4a") OrElse
-               nomeArquivo.EndsWith(".webm") Then
-                    deveExcluir = True
-                End If
-
-                If deveExcluir Then
-                    Try
-                        DeleteFileSafe(arquivo)
-                        totalDeletados += 1
-                        '  txtLog.AppendText($"🧹 Arquivo deletado: {Path.GetFileName(arquivo)}" & Environment.NewLine)
-                    Catch ex As Exception
-                        txtLog.AppendText($"[ERRO ao deletar] {Path.GetFileName(arquivo)} - {ex.Message}" & Environment.NewLine)
-                    End Try
-                End If
-            Next
-
-            ' txtLog.AppendText($"✅ Limpeza finalizada. Total de arquivos deletados: {totalDeletados}" & Environment.NewLine)
-
-        Catch ex As Exception
-            txtLog.AppendText($"[ERRO durante limpeza] {ex.Message}" & Environment.NewLine)
-        End Try
-    End Sub
-
     Private Async Sub BtnExecutar_Click(sender As Object, e As EventArgs) Handles btnExecutar.Click
+        If downloadEmAndamento Then Return
         btnExecutar.Enabled = False
         btCancelar.Enabled = True
         'timerFakeProgress.Start()
@@ -728,13 +843,13 @@ Public Class Form1
         StatusLabel.Text = "Status: Iniciando..."
         Me.Cursor = Cursors.WaitCursor
         txtLog.Clear()
-        Application.DoEvents()
 
         Dim successOverall As Boolean = True ' Para rastrear se todos os downloads tiveram sucesso
+        Dim liveCaptureJobs As New List(Of LiveCaptureJob)()
 
         Dim linksList As New List(Of String)()
         If File.Exists(downloadFilePath) Then
-            linksList = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
+            linksList = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
         End If
 
         If linksList.Count = 0 And lstLink.Items.Count = 0 Then
@@ -748,7 +863,10 @@ Public Class Form1
             Exit Sub
         End If
 
-        linksConcluidos = 1
+        linksConcluidos = 0
+        totalLinksNaFila = linksList.Count
+        liveSalvaAoEncerrar = False
+        encerrandoLive = False
         canceladoPeloUsuario = False
 
 
@@ -760,26 +878,48 @@ Public Class Form1
         progressBarDownload.Maximum = 100 ' O progresso será por link, de 0 a 100%
 
         Try
+            downloadEmAndamento = True
+            btnAdicionar.Enabled = False
+            btLimparLista.Enabled = False
+            TimerClipboard.Stop()
             For Each link In linksList
                 If canceladoPeloUsuario Then Exit For
                 currentDownloadLink = link
+                linkAtualEhLive = False
+                liveArquivoEmGravacao = ""
                 Dim linkOriginal As String = link ' Mantém o link original para referência
 
-                ' Resetar a barra para cada link
-                Me.Invoke(Sub()
-                              progressBarDownload.Value = 0
-                              If IsPlaylist(link) Then
-                                  StatusLabel.Text = $"Status: Baixando playlist..."
-                              Else
-                                  StatusLabel.Text = $"Status: Baixando {linksConcluidos} de {linksList.Count}..."
-                              End If
-                              ' StatusLabel.Text = $"Status: Baixando {linksConcluidos} de {linksList.Count}..."
-                          End Sub)
-                Application.DoEvents() ' Processa eventos para atualizar a UI
+                ' Consultar metadados uma vez, sem bloquear a interface, e reutilizá-los abaixo.
+                Dim metadados As JObject = Nothing
+                If Not IsCanal(link) Then
+                    Try
+                        metadados = Await ObterMetadadosLinkAsync(link)
+                    Catch ex As Exception
+                        If canceladoPeloUsuario Then Exit For
+                        txtLog.AppendText($"[ERRO ao consultar o link] {ex.Message}{Environment.NewLine}")
+                        successOverall = False
+                        Continue For
+                    End Try
+                End If
+                Dim linkEhLive = metadados IsNot Nothing AndAlso MetadadosIndicamLive(metadados)
+                Dim linkEhPlaylist = metadados IsNot Nothing AndAlso MetadadosIndicamPlaylist(metadados)
+                linkAtualEhLive = linkEhLive
 
+                If Not linkEhLive AndAlso liveCapturas.Count > 0 Then
+                    Dim tarefasAtivas = liveCapturas.Values.Select(Function(jobState) jobState.Task).Where(Function(tarefa) tarefa IsNot Nothing).ToArray()
+                    If tarefasAtivas.Length > 0 Then Await Task.WhenAll(tarefasAtivas)
+                    If canceladoPeloUsuario Then Exit For
+                End If
+
+                progressBarDownload.Value = 0
+                If linkEhPlaylist Then
+                    AtualizarStatus("Status: Baixando playlist...")
+                Else
+                    AtualizarStatus($"Status: Baixando {linksConcluidos} de {linksList.Count}...")
+                End If
                 Dim args As New StringBuilder()
                 ' Definindo argumentos base para yt-dlp
-                args.Append($"--output ""{My.Settings.destFolder}\%(title)s.%(ext)s"" ""{link}"" ")
+                args.Append($"--output ""{pastaDestino}\%(title)s.%(ext)s"" ""{link}"" ")
                 args.Append($"--cookies ""{cookiesFilePath}"" ")
                 args.Append("--no-warnings ")
                 args.Append("--progress --newline --no-mtime ") ' Manter essas para o parser
@@ -799,37 +939,44 @@ Public Class Form1
                     Continue For ' Próximo link
                 End If
 
-                If IsHLS(link) Then
-                    timerFakeProgress.Start() ' Seu timer para HLS
+                If linkEhLive Then
+                    args.Clear()
+                    args.Append($"--output ""{pastaDestino}\%(title)s [%(id)s].%(ext)s"" ""{link}"" ")
+                    args.Append($"--cookies ""{cookiesFilePath}"" --no-warnings --progress --newline --no-mtime ")
+                    args.Append("--format best/bestvideo+bestaudio/bestvideo --downloader ffmpeg --buffer-size 1M --hls-use-mpegts --no-part ")
+                    While liveCapturas.Count >= 2 AndAlso Not canceladoPeloUsuario
+                        Dim tarefasAtivas = liveCapturas.Values.Select(Function(jobState) jobState.Task).Where(Function(tarefa) tarefa IsNot Nothing).ToArray()
+                        If tarefasAtivas.Length = 0 Then Exit While
+                        Await Task.WhenAny(tarefasAtivas)
+                    End While
+                    If canceladoPeloUsuario Then Exit For
+
+                    Dim captura As New LiveCaptureJob With {.Link = linkOriginal}
+                    liveCapturas(linkOriginal) = captura
+                    liveCaptureJobs.Add(captura)
+                    AtualizarStatusLink(linkOriginal, "Gravando")
                     Me.Cursor = Cursors.Default
                     chkLegendas.Enabled = False
                     CheckBoxAudio.Enabled = False
-                    args.Append("--format best --downloader ffmpeg --buffer-size 1M --ignore-errors ")
-                    ' Para HLS, o yt-dlp usa ffmpeg e a saída de progresso é diferente
-                    ' Você pode precisar de uma lógica de parsing de HLS mais específica em ExecutarProcessoAsync
-                    ' ou confiar no seu timerFakeProgress para preencher a barra.
-                    If Await ExecutarProcessoAsync(txtLog, progressBarDownload, args.ToString()) Then
-                        MarcarItemComoOK(linkOriginal)
-                    Else
-                        successOverall = False
-                    End If
+                    AtualizarStatus($"Status: Gravando {liveCapturas.Count} de 2 lives...")
+                    captura.Task = ExecutarCapturaLiveAsync(captura, args.ToString())
                     Continue For ' Próximo link
                 End If
 
                 ' Lógica para Playlists e Vídeos/Áudio individuais
-                If IsPlaylist(link) Then
+                If linkEhPlaylist Then
                     If CheckBoxAudio.Checked Then
                         args = onlyAudio(link) ' Já inclui o --output e outras configs
                     Else
                         args.Append("--extractor-args ""youtubetab:skip=authcheck"" ")
-                        args.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best ") ' Tenta mesclar em MP4
+                        args.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best/bestvideo ") ' Tenta mesclar em MP4
                     End If
                 Else ' Single Video
                     If CheckBoxAudio.Checked Then
                         args = onlyAudio(link)
                     Else
                         args.Append("--extractor-args ""youtubetab:skip=authcheck"" ")
-                        args.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best --no-playlist ")
+                        args.Append("--format bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/bestvideo+bestaudio/best/bestvideo --no-playlist ")
                         args.Append("--merge-output-format mp4 ") ' Garante saída MP4 se houver fusão
                     End If
                 End If
@@ -837,13 +984,13 @@ Public Class Form1
                 ' Lógica de Legendas
                 If chkLegendas.Checked AndAlso Not CheckBoxAudio.Checked Then ' Legendas só fazem sentido para vídeo
                     Await CarregarLegendasDisponiveis(link)
+                    If canceladoPeloUsuario Then Exit For
                     Dim resultado As DialogResult = FormLegendas.ShowDialog()
                     If resultado = DialogResult.OK AndAlso Not String.IsNullOrEmpty(FormLegendas.args) Then
                         args.Append(" " & FormLegendas.args & " ")
                     End If
                 End If
 
-                args.Append("--format ""bestvideo+bestaudio/best"" ")
                 ' Agora executamos o processo para o link atual
                 If canceladoPeloUsuario Then Exit For ' Verifica cancelamento antes de executar
                 If Await ExecutarProcessoAsync(txtLog, progressBarDownload, args.ToString()) Then
@@ -854,14 +1001,20 @@ Public Class Form1
                 End If
             Next
 
+            Dim tarefasLives = liveCaptureJobs.Select(Function(captura) captura.Task).Where(Function(tarefa) tarefa IsNot Nothing).ToArray()
+            If tarefasLives.Length > 0 Then Await Task.WhenAll(tarefasLives)
+            If liveCaptureJobs.Any(Function(captura) Not captura.Succeeded) Then successOverall = False
+
             ' --- Finalização ---
-            If Not canceladoPeloUsuario And successOverall Then
+            If liveSalvaAoEncerrar Then
+                StatusLabel.Text = "Status: Live encerrada e salva."
+                txtLog.AppendText("✅ As capturas de live encerradas foram salvas." & Environment.NewLine)
+                OpenFolder()
+            ElseIf Not canceladoPeloUsuario And successOverall Then
                 txtLog.AppendText(Environment.NewLine & "✅ Todos os arquivos baixados com sucesso!" & Environment.NewLine)
                 OpenFolder()
                 StatusLabel.Text = "Status: Pronto"
-                Application.DoEvents()
                 Me.Cursor = Cursors.Default
-                cleanFiles()
             ElseIf canceladoPeloUsuario Then
                 StatusLabel.Text = "Status: Download cancelado pelo usuário."
                 txtLog.AppendText(Environment.NewLine & "⚠️ Download cancelado pelo usuário." & Environment.NewLine)
@@ -873,13 +1026,11 @@ Public Class Form1
         Catch ex As Exception
             txtLog.AppendText(Environment.NewLine & $"[ERRO INESPERADO] {ex.Message}")
             StatusLabel.Text = "Status: Falha no download..."
-            Application.DoEvents()
             NotifyIcon1.BalloonTipTitle = "❌ Download Falhou"
             NotifyIcon1.BalloonTipText = $"Ocorreu uma falha durante o download."
             NotifyIcon1.ShowBalloonTip(2000)
             successOverall = False
         Finally
-            canceladoPeloUsuario = False
             btnExecutar.Enabled = True
             btCancelar.Enabled = False
             progressBarDownload.Value = 0 ' Reseta a barra de progresso ao finalizar
@@ -892,7 +1043,11 @@ Public Class Form1
                           btLimparLista.Enabled = True ' Reabilita
                       End Sub)
 
-            If successOverall AndAlso Not canceladoPeloUsuario Then
+            If liveSalvaAoEncerrar Then
+                NotifyIcon1.BalloonTipTitle = "✅ Live salva"
+                NotifyIcon1.BalloonTipText = "A captura da live foi encerrada e salva."
+                NotifyIcon1.ShowBalloonTip(2000)
+            ElseIf successOverall AndAlso Not canceladoPeloUsuario Then
                 NotifyIcon1.BalloonTipTitle = "✅ Download Concluído"
                 NotifyIcon1.BalloonTipText = $"Todos os arquivos foram baixados com sucesso."
                 NotifyIcon1.ShowBalloonTip(2000)
@@ -902,14 +1057,234 @@ Public Class Form1
                 NotifyIcon1.ShowBalloonTip(2000)
             End If
             NotifyIcon1.Text = "PbPb Downloader"
+            canceladoPeloUsuario = False
+            downloadEmAndamento = False
+            btnAdicionar.Enabled = True
+            TimerClipboard.Start()
+        End Try
+    End Sub
+
+    ' Executado na thread da interface: substitui apenas a linha de progresso anterior.
+    Private Sub AtualizarLinhaProgresso(logTextBox As TextBox, linha As String, ByRef linhaAnterior As String)
+        Dim novaLinha = linha & Environment.NewLine
+        Dim indice = If(String.IsNullOrEmpty(linhaAnterior), -1,
+                        logTextBox.Text.IndexOf(linhaAnterior, StringComparison.Ordinal))
+
+        If indice >= 0 Then
+            logTextBox.Select(indice, linhaAnterior.Length)
+            logTextBox.SelectedText = novaLinha
+        Else
+            logTextBox.AppendText(novaLinha)
+        End If
+
+        linhaAnterior = novaLinha
+        logTextBox.SelectionStart = logTextBox.TextLength
+        logTextBox.SelectionLength = 0
+        logTextBox.ScrollToCaret()
+    End Sub
+
+    Private Function CapturaLiveFoiSalva() As Boolean
+        Try
+            Return Not String.IsNullOrWhiteSpace(liveArquivoEmGravacao) AndAlso
+                   File.Exists(liveArquivoEmGravacao) AndAlso
+                   New FileInfo(liveArquivoEmGravacao).Length >= 188
+        Catch
+            Return False
+        End Try
+    End Function
+
+    Private Async Function GerarMiniaturaLiveAsync(caminhoVideo As String) As Task(Of String)
+        Dim caminhoImagem As String = ""
+        Try
+            If Not File.Exists(caminhoVideo) Then Return ""
+
+            Dim pasta = Path.GetDirectoryName(caminhoVideo)
+            Dim nomeBase = Path.GetFileNameWithoutExtension(caminhoVideo)
+            caminhoImagem = Path.Combine(pasta, nomeBase & "_thumb.jpg")
+            Dim indice = 2
+            While File.Exists(caminhoImagem)
+                caminhoImagem = Path.Combine(pasta, $"{nomeBase}_thumb_{indice}.jpg")
+                indice += 1
+            End While
+
+            Dim psi As New ProcessStartInfo With {
+                .FileName = Path.Combine(Application.StartupPath, "app", "ffmpeg.exe"),
+                .UseShellExecute = False,
+                .RedirectStandardError = True,
+                .CreateNoWindow = True
+            }
+            For Each argumento In {"-hide_banner", "-loglevel", "error", "-ss", "00:00:05", "-i", caminhoVideo, "-frames:v", "1", "-q:v", "2", caminhoImagem}
+                psi.ArgumentList.Add(argumento)
+            Next
+
+            Using proc As Process = Process.Start(psi)
+                Dim errorsTask = proc.StandardError.ReadToEndAsync()
+                Dim waitTask = proc.WaitForExitAsync()
+                If Await Task.WhenAny(waitTask, Task.Delay(TimeSpan.FromSeconds(30))) IsNot waitTask Then
+                    Try
+                        proc.Kill(entireProcessTree:=True)
+                    Catch
+                    End Try
+                    Await waitTask
+                    Await errorsTask
+                    Throw New TimeoutException("A geração da miniatura excedeu 30 segundos.")
+                End If
+
+                Dim errors = Await errorsTask
+                If proc.ExitCode = 0 AndAlso File.Exists(caminhoImagem) AndAlso New FileInfo(caminhoImagem).Length > 0 Then
+                    Return caminhoImagem
+                End If
+                Throw New InvalidOperationException(If(String.IsNullOrWhiteSpace(errors), "O FFmpeg não encontrou um quadro para a miniatura.", errors.Trim()))
+            End Using
+        Catch ex As Exception
+            If Not String.IsNullOrWhiteSpace(caminhoImagem) AndAlso File.Exists(caminhoImagem) Then
+                Try
+                    File.Delete(caminhoImagem)
+                Catch
+                End Try
+            End If
+            txtLog.AppendText($"[AVISO] Não foi possível gerar a miniatura da live: {ex.Message}{Environment.NewLine}")
+            Return ""
+        End Try
+    End Function
+
+    Private Async Function ExecutarCapturaLiveAsync(captura As LiveCaptureJob, argumentos As String) As Task(Of Boolean)
+        Dim stdoutConcluido As New TaskCompletionSource(Of Boolean)(TaskCreationOptions.RunContinuationsAsynchronously)
+        Dim stderrConcluido As New TaskCompletionSource(Of Boolean)(TaskCreationOptions.RunContinuationsAsynchronously)
+        Dim psi As New ProcessStartInfo With {
+            .FileName = Path.Combine(Application.StartupPath, "app", "yt-dlp.exe"),
+            .WorkingDirectory = Application.StartupPath,
+            .UseShellExecute = False,
+            .RedirectStandardOutput = True,
+            .RedirectStandardError = True,
+            .CreateNoWindow = True
+        }
+        ConverterArgumentosSeparados(psi, argumentos)
+
+        Dim proc As New Process With {.StartInfo = psi, .EnableRaisingEvents = True}
+        captura.Process = proc
+        Dim registrarLinha As Action(Of String, Boolean) =
+            Sub(linha, substituir)
+                If String.IsNullOrWhiteSpace(linha) OrElse IsDisposed Then Return
+                Try
+                    BeginInvoke(Sub()
+                                    Dim titulo = lstLink.Items.Cast(Of ListViewItem)().FirstOrDefault(Function(item) item.Tag IsNot Nothing AndAlso item.Tag.ToString().Equals(captura.Link, StringComparison.OrdinalIgnoreCase))?.Text
+                                    Dim texto = $"[Live: {If(String.IsNullOrWhiteSpace(titulo), captura.Link, titulo)}] {linha}"
+                                    AtualizarDadosLiveNaLista(captura)
+                                    If substituir AndAlso Not String.IsNullOrEmpty(captura.LastLogLine) Then
+                                        txtLog.Text = txtLog.Text.Replace(captura.LastLogLine & Environment.NewLine, "")
+                                    End If
+                                    txtLog.AppendText(texto & Environment.NewLine)
+                                    captura.LastLogLine = If(substituir, texto, "")
+                                End Sub)
+                Catch
+                End Try
+            End Sub
+
+        Dim lerLinha As Action(Of String) =
+            Sub(linha)
+                If String.IsNullOrWhiteSpace(linha) Then Return
+                Dim marcador = "[download] Destination:"
+                Dim indice = linha.IndexOf(marcador, StringComparison.Ordinal)
+                If indice >= 0 Then captura.OutputPath = linha.Substring(indice + marcador.Length).Trim().Trim(""""c)
+                Dim progresso = linha.StartsWith("[download]", StringComparison.OrdinalIgnoreCase) AndAlso Regex.IsMatch(linha, "\d{1,3}(?:\.\d+)?%")
+                registrarLinha(linha.Trim(), progresso)
+            End Sub
+
+        AddHandler proc.OutputDataReceived, Sub(s, ev)
+                                                If ev.Data Is Nothing Then
+                                                    stdoutConcluido.TrySetResult(True)
+                                                Else
+                                                    lerLinha(ev.Data)
+                                                End If
+                                            End Sub
+        AddHandler proc.ErrorDataReceived, Sub(s, ev)
+                                               If ev.Data Is Nothing Then
+                                                   stderrConcluido.TrySetResult(True)
+                                               Else
+                                                   lerLinha(ev.Data)
+                                               End If
+                                           End Sub
+
+        Try
+            captura.StartedAt = DateTime.Now
+            proc.Start()
+            proc.BeginOutputReadLine()
+            proc.BeginErrorReadLine()
+            Await proc.WaitForExitAsync()
+            Await Task.WhenAll(stdoutConcluido.Task, stderrConcluido.Task)
+
+            Dim capturaRemovida As LiveCaptureJob = Nothing
+            liveCapturas.TryRemove(captura.Link, capturaRemovida)
+            AtualizarStatusCapturasLives()
+
+            Dim arquivoSalvo = Not String.IsNullOrWhiteSpace(captura.OutputPath) AndAlso
+                               File.Exists(captura.OutputPath) AndAlso New FileInfo(captura.OutputPath).Length >= 188
+            AtualizarDadosLiveNaLista(captura)
+            If captura.StopRequested AndAlso arquivoSalvo Then
+                captura.Succeeded = True
+                liveSalvaAoEncerrar = True
+                linksConcluidos += 1
+                AtualizarStatusLink(captura.Link, "Salvo")
+                txtLog.AppendText($"[Live salva] Captura encerrada em: {captura.OutputPath}{Environment.NewLine}")
+                Dim miniatura = Await GerarMiniaturaLiveAsync(captura.OutputPath)
+                If Not String.IsNullOrWhiteSpace(miniatura) Then txtLog.AppendText($"[Miniatura] Imagem salva em: {miniatura}{Environment.NewLine}")
+            ElseIf proc.ExitCode = 0 Then
+                captura.Succeeded = True
+                linksConcluidos += 1
+                MarcarItemComoOK(captura.Link)
+                txtLog.AppendText($"[Live concluída] {captura.OutputPath}{Environment.NewLine}")
+                If arquivoSalvo Then
+                    Dim miniatura = Await GerarMiniaturaLiveAsync(captura.OutputPath)
+                    If Not String.IsNullOrWhiteSpace(miniatura) Then txtLog.AppendText($"[Miniatura] Imagem salva em: {miniatura}{Environment.NewLine}")
+                End If
+            Else
+                AtualizarStatusLink(captura.Link, "Erro")
+                txtLog.AppendText($"[ERRO] A captura da live terminou com código {proc.ExitCode}.{Environment.NewLine}")
+            End If
+            Return captura.Succeeded
+        Catch ex As Exception
+            AtualizarStatusLink(captura.Link, "Erro")
+            txtLog.AppendText($"[ERRO na live] {ex.Message}{Environment.NewLine}")
+            Return False
+        Finally
+            captura.Process = Nothing
+            proc.Dispose()
+            Dim removida As LiveCaptureJob = Nothing
+            liveCapturas.TryRemove(captura.Link, removida)
+            AtualizarStatusCapturasLives()
+        End Try
+    End Function
+
+    Private Sub PararLiveDaLinha(link As String)
+        Dim captura As LiveCaptureJob = Nothing
+        If Not liveCapturas.TryGetValue(link, captura) OrElse captura.StopRequested Then Return
+        captura.StopRequested = True
+        AtualizarStatusLink(link, "Encerrando")
+        txtLog.AppendText($"[Live] Encerrando e salvando: {link}{Environment.NewLine}")
+        Try
+            Dim proc = captura.Process
+            If proc IsNot Nothing AndAlso Not proc.HasExited Then proc.Kill(entireProcessTree:=True)
+        Catch ex As InvalidOperationException
+        Catch ex As Exception
+            captura.StopRequested = False
+            AtualizarStatusLink(link, "Gravando")
+            txtLog.AppendText($"[ERRO ao encerrar a live] {ex.Message}{Environment.NewLine}")
         End Try
     End Sub
 
     ' --- ExecutarProcessoAsync Modificado ---
     Public Async Function ExecutarProcessoAsync(ByVal logTextBox As TextBox, ByVal progressBar As ProgressBar, ByVal argumentos As String) As Task(Of Boolean)
 
-        Dim tcs As New TaskCompletionSource(Of Boolean)()
+        Dim ultimaLinhaDownload As String = ""
+        Dim estimador As New EstimadorEta()
+        Dim relogioEta = Stopwatch.StartNew()
+        Dim arquivosDestinoDoLink As New ConcurrentDictionary(Of String, Byte)(StringComparer.OrdinalIgnoreCase)
+        Dim stdoutConcluido As New TaskCompletionSource(Of Boolean)(TaskCreationOptions.RunContinuationsAsynchronously)
+        Dim stderrConcluido As New TaskCompletionSource(Of Boolean)(TaskCreationOptions.RunContinuationsAsynchronously)
         Dim hasErrors As Boolean = False
+        Dim avisoMoovExibido As Boolean = False
+        Dim aguardandoComplementoMoov As Boolean = False
         Dim exitCode As Integer = -1
         Dim ignorandoListaLegendas As Boolean = False ' Variável para controlar o estado de ignorar logs de legenda
         currentLinkPhase = CurrentDownloadPhase.Initial ' Resetar a fase para cada novo link
@@ -919,9 +1294,10 @@ Public Class Form1
         }
 
         ' Adicionar --progress e --newline se já não estiver nos argumentos
-        If Not argumentos.Contains("--progress") Then psi.Arguments &= " --progress"
-        If Not argumentos.Contains("--newline") Then psi.Arguments &= " --newline"
-        psi.Arguments &= " " & argumentos ' Adiciona os argumentos específicos do link
+        Dim argumentosProcesso = argumentos
+        If Not argumentos.Contains("--progress") Then argumentosProcesso &= " --progress"
+        If Not argumentos.Contains("--newline") Then argumentosProcesso &= " --newline"
+        ConverterArgumentosSeparados(psi, argumentosProcesso)
         psi.WorkingDirectory = Application.StartupPath
         psi.UseShellExecute = False
         psi.RedirectStandardOutput = True
@@ -934,12 +1310,23 @@ Public Class Form1
         proc.EnableRaisingEvents = True
 
         AddHandler proc.OutputDataReceived, Sub(s, ev)
+                                                If ev.Data Is Nothing Then
+                                                    stdoutConcluido.TrySetResult(True)
+                                                    Return
+                                                End If
                                                 If ev.Data IsNot Nothing Then
                                                     Dim linha As String = ev.Data.Trim() ' Remover espaços em branco no início/fim
 
                                                     ' --- Nova Lógica de Fases e Progresso ---
 
                                                     If linha.Contains("[download] Destination:") Then
+                                                        Dim indiceDestino = linha.IndexOf("[download] Destination:", StringComparison.Ordinal)
+                                                        Dim caminhoDestino = linha.Substring(indiceDestino + "[download] Destination:".Length).Trim().Trim(""""c)
+                                                        If Path.IsPathRooted(caminhoDestino) Then
+                                                            arquivosDestinoDoLink.TryAdd(caminhoDestino, 0)
+                                                            If linkAtualEhLive Then liveArquivoEmGravacao = caminhoDestino
+                                                        End If
+                                                        estimador.Reiniciar()
 
                                                         ' É o início de um novo arquivo sendo baixado (áudio ou vídeo)
                                                         If currentLinkPhase = CurrentDownloadPhase.Initial Then
@@ -954,6 +1341,7 @@ Public Class Form1
                                                     End If
 
                                                     If linha.Contains("[download] Downloading item") Then
+                                                        estimador.Reiniciar()
                                                         Me.Invoke(Sub()
                                                                       Dim statusText As String = linha.Replace("[download] Downloading item", "Status: Baixando item")
                                                                       StatusLabel.Text = statusText
@@ -996,6 +1384,9 @@ Public Class Form1
                                                         Dim percentText = match.Groups(1).Value.Replace(",", ".")
                                                         Dim percentEtapa As Integer = CInt(Math.Floor(Double.Parse(percentText, Globalization.CultureInfo.InvariantCulture)))
                                                         percentEtapa = Math.Min(percentEtapa, 100) ' Garante que não exceda 100
+                                                        Dim etaTexto = estimador.Atualizar(linha, Double.Parse(percentText, Globalization.CultureInfo.InvariantCulture), relogioEta.Elapsed.TotalSeconds)
+                                                        Dim linhaProgresso = Regex.Replace(linha, "\bETA\s+\S+", "ETA " & etaTexto)
+                                                        If Not linha.Contains("ETA ") Then linhaProgresso &= " | ETA " & etaTexto
 
 
 
@@ -1014,6 +1405,7 @@ Public Class Form1
                                                         ' AtualizarStatus("Status: Download em andamento...")
                                                         Me.Invoke(Sub()
                                                                       progressBar.Value = Math.Min(progressoLink, progressBar.Maximum)
+                                                                      AtualizarStatus($"Status: Baixando {Math.Min(linksConcluidos + 1, totalLinksNaFila)} de {totalLinksNaFila} | {percentText}% | ETA: {etaTexto}")
                                                                       AtualizarNotifyIconProgresso()
                                                                       Me.Cursor = Cursors.Default
                                                                       txtLog.Cursor = Cursors.Default
@@ -1021,7 +1413,7 @@ Public Class Form1
                                                                       CheckBoxAudio.Enabled = False
                                                                       btLimparLista.Enabled = False
                                                                   End Sub)
-                                                        logTextBox.Invoke(Sub() logTextBox.AppendText(linha & Environment.NewLine)) ' Loga a linha de progresso
+                                                        logTextBox.Invoke(Sub() AtualizarLinhaProgresso(logTextBox, linhaProgresso, ultimaLinhaDownload))
                                                         Return ' Linha de progresso processada
                                                     End If
 
@@ -1033,9 +1425,37 @@ Public Class Form1
 
         ' Handler para a saída de erro (error)
         AddHandler proc.ErrorDataReceived, Sub(s, ev)
+                                               If ev.Data Is Nothing Then
+                                                   stderrConcluido.TrySetResult(True)
+                                                   Return
+                                               End If
                                                If ev.Data IsNot Nothing AndAlso Not String.IsNullOrWhiteSpace(ev.Data) Then
+                                                   If ev.Data.Contains("[download] Destination:", StringComparison.Ordinal) Then
+                                                       Dim indiceDestino = ev.Data.IndexOf("[download] Destination:", StringComparison.Ordinal)
+                                                       Dim caminhoDestino = ev.Data.Substring(indiceDestino + "[download] Destination:".Length).Trim().Trim(""""c)
+                                                       If Path.IsPathRooted(caminhoDestino) Then
+                                                           arquivosDestinoDoLink.TryAdd(caminhoDestino, 0)
+                                                           If linkAtualEhLive Then liveArquivoEmGravacao = caminhoDestino
+                                                       End If
+                                                   End If
+
                                                    Dim linha = ev.Data.Trim().ToLower()
                                                    Dim linhaOriginal = ev.Data
+                                                   ' O FFmpeg ignora metadados MOOV repetidos; informa apenas uma vez por captura.
+                                                   If linha.StartsWith("[mov,") AndAlso linha.Contains("found duplicated moov atom.") Then
+                                                       aguardandoComplementoMoov = Not linha.Contains("skipped it")
+                                                       If Not avisoMoovExibido Then
+                                                           avisoMoovExibido = True
+                                                           logTextBox.Invoke(Sub() logTextBox.AppendText("[AVISO] Metadados MP4 repetidos foram ignorados pelo FFmpeg. Avisos iguais serão omitidos nesta captura." & Environment.NewLine))
+                                                       End If
+                                                       Return
+                                                   End If
+
+                                                   If aguardandoComplementoMoov AndAlso linha = "skipped it" Then
+                                                       aguardandoComplementoMoov = False
+                                                       Return
+                                                   End If
+                                                   aguardandoComplementoMoov = False
                                                    ' Termos típicos de HLS que queremos interceptar (e não registrar como erro fatal no log)
                                                    Dim termosHLS = New String() {
                     "duration:", "stream mapping:", "metadata:", "stream #", "input #", "output #", "[https @",
@@ -1044,7 +1464,7 @@ Public Class Form1
                                                    If termosHLS.Any(Function(p) linha.StartsWith(p) OrElse linha.Contains(p)) Then
                                                        Me.Invoke(Sub()
                                                                      Try
-                                                                         Dim tamanho = ObterTamanhoDaPasta(My.Settings.destFolder)
+                                                                         Dim tamanho = ObterTamanhoDaPasta(pastaDestino)
                                                                          Dim tempoGravacao = DateTime.Now - inicioHLS
                                                                          Dim tempoTexto = $"{tempoGravacao.Minutes:D2}:{tempoGravacao.Seconds:D2}"
 
@@ -1089,152 +1509,73 @@ Public Class Form1
                                                        Me.Invoke(Sub() txtLog.AppendText(ev.Data & Environment.NewLine))
                                                    End If
 
-                                                   Me.Invoke(Sub()
-                                                                 txtLog.AppendText(linhaOriginal & Environment.NewLine)
-                                                             End Sub)
+
 
                                                End If
 
                                            End Sub
 
-        ' Handler para quando o processo for finalizado
-        AddHandler proc.Exited, Sub(s, ev)
-                                    Try
-                                        exitCode = proc.ExitCode
-                                    Catch ex As Exception
-                                        exitCode = -1 ' Em caso de erro para pegar o ExitCode
-                                    End Try
-                                    ultimaLinhaHLS = "" ' Reseta para o próximo HLS
-                                    ' Define o resultado da tarefa para indicar que o processo terminou
-                                    tcs.TrySetResult(Not hasErrors AndAlso exitCode = 0) ' Indica sucesso apenas se não houver erros e exit code for 0
-                                    Me.Invoke(Sub()
-                                                  ' Resetar cursores e habilitar controles ao finalizar o processo do link
-                                                  Me.Cursor = Cursors.Default
-                                                  txtLog.Cursor = Cursors.Default
-                                                  chkLegendas.Enabled = True
-                                                  CheckBoxAudio.Enabled = True
-                                                  btLimparLista.Enabled = True
-                                                  ' Atualizar a barra para 100% para o link atual
-                                                  progressBar.Value = progressBar.Maximum
-                                              End Sub)
-                                End Sub
-
         Try
-            inicioHLS = DateTime.Now ' Inicia o contador para HLS
+            If canceladoPeloUsuario Then Return False
+            inicioHLS = DateTime.Now
             proc.Start()
             proc.BeginOutputReadLine()
             proc.BeginErrorReadLine()
-
+            ' Aguarda também o escoamento dos eventos de stdout/stderr antes de decidir o resultado.
+            Await proc.WaitForExitAsync()
+            Await Task.WhenAll(stdoutConcluido.Task, stderrConcluido.Task)
+            exitCode = proc.ExitCode
+            Return Not canceladoPeloUsuario AndAlso Not hasErrors AndAlso exitCode = 0
         Catch ex As Exception
-            logTextBox.Invoke(Sub() logTextBox.AppendText("[FALHA CRÍTICA] Não foi possível iniciar o processo: " & ex.Message & Environment.NewLine))
-            tcs.TrySetResult(False) ' Indica falha
+            logTextBox.AppendText("[FALHA] Não foi possível executar o download: " & ex.Message & Environment.NewLine)
             AtualizarStatus("Status: Falha no processo...")
-            Application.DoEvents()
+            Return False
+        Finally
+            If canceladoPeloUsuario AndAlso Not encerrandoLive Then
+                For Each destino In arquivosDestinoDoLink.Keys
+                    Try
+                        Dim pasta = Path.GetDirectoryName(destino)
+                        Dim nomeDestino = Path.GetFileName(destino)
+                        Dim parciais As New HashSet(Of String)(StringComparer.OrdinalIgnoreCase) From {
+                            destino & ".part",
+                            destino & ".ytdl"
+                        }
+                        If Directory.Exists(pasta) Then
+                            For Each parcial In Directory.GetFiles(pasta, nomeDestino & ".part*")
+                                parciais.Add(parcial)
+                            Next
+                        End If
+                        For Each parcial In parciais
+                            If File.Exists(parcial) Then File.Delete(parcial)
+                        Next
+                    Catch ex As Exception
+                        logTextBox.AppendText($"[AVISO] Não foi possível remover todos os parciais de {Path.GetFileName(destino)}: {ex.Message}{Environment.NewLine}")
+                    End Try
+                Next
+                logTextBox.AppendText("[Cancelamento] Arquivos parciais do link atual removidos." & Environment.NewLine)
+            ElseIf encerrandoLive Then
+                logTextBox.AppendText("[Live] Preservando o fluxo MPEG-TS gravado para finalizar e salvar a captura." & Environment.NewLine)
+            End If
+            ultimaLinhaHLS = ""
+            If Object.ReferenceEquals(processoYtDlp, proc) Then processoYtDlp = Nothing
+            proc.Dispose()
         End Try
-
-        Return Await tcs.Task ' Aguarda a conclusão da tarefa
     End Function
-
-    Private Sub DeleteFileSafe(caminho As String)
-        Dim tentativas As Integer = 0
-        While tentativas < 5
-            Try
-                If File.Exists(caminho) Then
-                    File.Delete(caminho)
-                End If
-                Exit While ' Sucesso, sai do loop
-            Catch ex As IOException
-                tentativas += 1
-                Threading.Thread.Sleep(500) ' Espera meio segundo antes de tentar de novo
-            End Try
-        End While
-    End Sub
 
     Private Function ObterTamanhoDaPasta(pasta As String) As String
         Try
             Dim tamanhoTotal As Long = 0
-            For Each arquivo In Directory.GetFiles(pasta, "*.part", SearchOption.TopDirectoryOnly)
-                tamanhoTotal += New FileInfo(arquivo).Length
-            Next
+            If linkAtualEhLive AndAlso Not String.IsNullOrWhiteSpace(liveArquivoEmGravacao) AndAlso File.Exists(liveArquivoEmGravacao) Then
+                tamanhoTotal = New FileInfo(liveArquivoEmGravacao).Length
+            Else
+                For Each arquivo In Directory.GetFiles(pasta, "*.part", SearchOption.TopDirectoryOnly)
+                    tamanhoTotal += New FileInfo(arquivo).Length
+                Next
+            End If
 
             Return (tamanhoTotal / 1024 / 1024).ToString("0.00") & " MB"
         Catch
             Return "?"
-        End Try
-    End Function
-
-    Private Function MergeTodosOsVideosEAudios()
-        Dim pastaDestino As String = Path.Combine(Application.StartupPath, My.Settings.destFolder)
-        Dim arquivosVideo = Directory.GetFiles(pastaDestino, "*_video.*", SearchOption.TopDirectoryOnly)
-        Dim arquivosAudio = Directory.GetFiles(pastaDestino, "*_audio.*", SearchOption.TopDirectoryOnly)
-
-        StatusLabel.Text = "Status: Finalizando aguarde..."
-        Me.Cursor = Cursors.WaitCursor
-        Dim allMergesOK As Boolean = False
-
-        For Each video In arquivosVideo
-
-            Dim nomeBase = Path.GetFileNameWithoutExtension(video).Replace("_video", "")
-            Dim audio = arquivosAudio.FirstOrDefault(Function(a) Path.GetFileNameWithoutExtension(a).Replace("_audio", "") = nomeBase)
-
-            If Not String.IsNullOrEmpty(audio) Then
-                Dim outputFinal = Path.Combine(pastaDestino, nomeBase & ".mp4")
-                If ExecutarMergeSeguro(video, audio, outputFinal) Then
-                    File.Delete(video)
-                    File.Delete(audio)
-                    allMergesOK = True
-                Else
-                    txtLog.AppendText($"❌ Falha ao fazer merge de: {Path.GetFileName(video)} e {Path.GetFileName(audio)}" & Environment.NewLine)
-                End If
-            Else
-                txtLog.AppendText($"⚠️ Sem áudio correspondente para: {Path.GetFileName(video)}" & Environment.NewLine)
-            End If
-        Next
-
-        Return allMergesOK
-
-    End Function
-
-    Private Function ExecutarMergeSeguro(video As String, audio As String, outputFinal As String)
-        Try
-            Dim ffmpegPath As String = Path.Combine(Application.StartupPath, "app", "ffmpeg.exe")
-            Dim psi As New ProcessStartInfo With {
-            .FileName = ffmpegPath,
-            .Arguments = $"-y -i ""{video}"" -i ""{audio}"" -c copy -movflags +faststart ""{outputFinal}""",
-            .UseShellExecute = False,
-            .CreateNoWindow = True,
-            .RedirectStandardOutput = True,
-            .RedirectStandardError = True
-        }
-
-            Using ffmpegProc As Process = Process.Start(psi)
-                ' Descartar stdout e stderr pra evitar travamento de buffer
-                AddHandler ffmpegProc.OutputDataReceived, Sub(sender, e)
-                                                          End Sub
-                AddHandler ffmpegProc.ErrorDataReceived, Sub(sender, e)
-                                                         End Sub
-
-                ffmpegProc.BeginOutputReadLine()
-                ffmpegProc.BeginErrorReadLine()
-
-                ' Timeout de segurança: 30 segundos
-                If Not ffmpegProc.WaitForExit(300000) Then
-                    Try
-                        ffmpegProc.Kill()
-                        Me.Invoke(Sub() txtLog.AppendText($"[ERRO] ffmpeg travado ao tentar unir: {Path.GetFileName(outputFinal)}. Timeout forçado." & Environment.NewLine))
-                        Return False
-                    Catch
-                        Return False
-                    End Try
-                Else
-                    Return True
-                    '  Me.Invoke(Sub() txtLog.AppendText($"✅ Merge concluído: {Path.GetFileName(outputFinal)}" & Environment.NewLine))
-                End If
-            End Using
-
-        Catch ex As Exception
-            Me.Invoke(Sub() txtLog.AppendText($"[ERRO no merge de {Path.GetFileName(outputFinal)}] {ex.Message}" & Environment.NewLine))
-            Return False
         End Try
     End Function
 
@@ -1260,6 +1601,7 @@ Public Class Form1
         'lstLink.EnsureVisible(lstLink.Items.Count - 1)
     End Sub
     Private Sub AlterarPastaDestinoToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles AlterarPastaDestinoToolStripMenuItem.Click
+        If downloadEmAndamento Then Return
         Dim folderBrowser As New FolderBrowserDialog With {
             .Description = "Selecione a pasta de destino para os downloads:"
         }
@@ -1275,208 +1617,46 @@ Public Class Form1
     End Sub
 
     Private Sub btCancelar_Click(sender As Object, e As EventArgs) Handles btCancelar.Click
+        If canceladoPeloUsuario Then Return
         canceladoPeloUsuario = True
+        btCancelar.Enabled = False
+        timerFakeProgress.Stop()
+        encerrandoLive = linkAtualEhLive OrElse liveCapturas.Count > 0
+        AtualizarStatus(If(encerrandoLive, "Status: Encerrando e salvando a live...", "Status: Cancelando download..."))
 
-        Task.Run(Sub()
-                     Try
-                         Me.Invoke(Sub()
-                                       StatusLabel.Text = "Status: Cancelando download..."
-                                       'timerFakeProgress.Stop()
-                                       Me.Cursor = Cursors.Default
-                                   End Sub)
+        For Each captura In liveCapturas.Values.ToArray()
+            captura.StopRequested = True
+            AtualizarStatusLink(captura.Link, "Encerrando")
+            Try
+                If captura.Process IsNot Nothing AndAlso Not captura.Process.HasExited Then captura.Process.Kill(entireProcessTree:=True)
+            Catch
+            End Try
+        Next
 
-                         ' Tenta matar o processo yt-dlp
-                         If processoYtDlp IsNot Nothing AndAlso Not processoYtDlp.HasExited Then
-                             Try
-                                 processoYtDlp.Kill(entireProcessTree:=True)
-                                 processoYtDlp.WaitForExit(3000)
-                                 processoYtDlp.Dispose()
-                                 processoYtDlp = Nothing
-                             Catch ex As Exception
-                                 Debug.WriteLine($"{ex.Message}" & Environment.NewLine)
-                             End Try
-
-                         End If
-
-                         If Not IsHLS(currentDownloadLink) Then
-                             cleanFiles()
-                         Else
-                             ' Limpeza de arquivos .part
-                             Dim arquivosPart = Directory.GetFiles(pastaDestino, "*.part", SearchOption.TopDirectoryOnly)
-                             Dim arquivosVideo = arquivosPart.Where(Function(f) f.EndsWith(".mp4.part") OrElse f.EndsWith(".webm.part")).ToList()
-                             Dim arquivosAudio = arquivosPart.Where(Function(f) f.EndsWith(".m4a.part") OrElse (f.EndsWith(".webm.part") AndAlso Not f.EndsWith(".mp4.part"))).ToList()
-
-                             ' 1. Renomear .part para o nome final
-                             For Each arquivo In arquivosPart
-                                 Dim novoNome = Path.Combine(pastaDestino, Path.GetFileNameWithoutExtension(arquivo))
-                                 Try
-                                     File.Move(arquivo, novoNome)
-                                 Catch ex As Exception
-                                     Me.Invoke(Sub() txtLog.AppendText($"[ERRO ao renomear {Path.GetFileName(arquivo)}] {ex.Message}" & Environment.NewLine))
-                                 End Try
-                             Next
-
-                             ' 2. Atualizar listas agora sem ".part"
-                             arquivosVideo = Directory.GetFiles(pastaDestino, "*.mp4", SearchOption.TopDirectoryOnly).ToList()
-                             arquivosAudio = Directory.GetFiles(pastaDestino, "*.m4a", SearchOption.TopDirectoryOnly).ToList()
-
-
-                             For Each video In arquivosVideo
-                                 Dim nomeBase = Path.GetFileNameWithoutExtension(video).Replace(".mp4", "").Replace(".webm", "")
-                                 Dim audio = arquivosAudio.FirstOrDefault(Function(a) Path.GetFileNameWithoutExtension(a).Contains(nomeBase))
-
-                                 If Not String.IsNullOrEmpty(audio) Then
-                                     Dim outputFinal = Path.Combine(pastaDestino, nomeBase & "_merged.mp4")
-                                     Dim ffmpegPath = Path.Combine(Application.StartupPath, "app", "ffmpeg.exe")
-                                     Dim psi As New ProcessStartInfo(ffmpegPath, $"-y -i ""{video}"" -i ""{audio}"" -c copy ""{outputFinal}""") With {
-                                     .CreateNoWindow = True,
-                                     .UseShellExecute = False
-                                 }
-
-                                     Using ffmpegProc As Process = Process.Start(psi)
-                                         ffmpegProc.WaitForExit()
-                                     End Using
-
-                                 End If
-                             Next
-
-                             Me.Invoke(Sub()
-                                           NotifyIcon1.BalloonTipTitle = "✅ Streaming Concluído"
-                                           NotifyIcon1.BalloonTipText = "O streaming terminou de ser capturado."
-                                           NotifyIcon1.ShowBalloonTip(2000)
-                                           StatusLabel.Text = "Status: O streaming terminou de ser capturado."
-                                           btnExecutar.Enabled = True
-                                           btCancelar.Enabled = False
-                                           Me.Cursor = Cursors.Default
-                                           progressBarDownload.Value = 0
-                                       End Sub)
-
-                             cleanFiles()
-                             OpenFolder()
-                             Exit Sub
-                         End If
-
-                         ' Limpa barra de progresso e atualiza interface
-                         Me.Invoke(Sub()
-                                       progressBarDownload.Value = 0
-                                       StatusLabel.Text = "Status: Download cancelado pelo usuário."
-                                       btnExecutar.Enabled = True
-                                       btCancelar.Enabled = False
-                                       Me.Cursor = Cursors.Default
-                                   End Sub)
-
-                         ' Feedback final ao usuário
-                         Me.Invoke(Sub()
-                                       NotifyIcon1.BalloonTipTitle = "⛔ Download Cancelado"
-                                       NotifyIcon1.BalloonTipText = "O processo de download foi interrompido."
-                                       NotifyIcon1.ShowBalloonTip(2000)
-                                   End Sub)
-
-                     Catch ex As Exception
-                         Me.Invoke(Sub()
-                                       txtLog.AppendText($"[ERRO inesperado no Cancelar] {ex.Message}" & Environment.NewLine)
-                                       StatusLabel.Text = "Status: Erro ao cancelar."
-                                       btnExecutar.Enabled = True
-                                       btCancelar.Enabled = False
-                                       Me.Cursor = Cursors.Default
-                                   End Sub)
-                     End Try
-                 End Sub)
+        ' O executor aguarda a saída e remove apenas os parciais identificados para este link.
+        Dim proc = processoYtDlp
+        Try
+            If proc IsNot Nothing AndAlso Not proc.HasExited Then
+                proc.Kill(entireProcessTree:=True)
+            End If
+        Catch ex As InvalidOperationException
+            ' O processo pode ter terminado entre a consulta e o pedido de cancelamento.
+        Catch ex As Exception
+            canceladoPeloUsuario = False
+            btCancelar.Enabled = True
+            txtLog.AppendText($"[ERRO ao cancelar] {ex.Message}{Environment.NewLine}")
+            AtualizarStatus("Status: Não foi possível cancelar. Tente novamente.")
+            Return
+        End Try
+        If encerrandoLive Then
+            txtLog.AppendText("[Live] Encerrando a captura para preservar o vídeo no formato MPEG-TS." & Environment.NewLine)
+        Else
+            txtLog.AppendText("[Cancelamento] Aguardando o encerramento para remover os parciais deste link." & Environment.NewLine)
+        End If
     End Sub
 
-
-    'Private Sub btCancelar_Click(sender As Object, e As EventArgs) Handles btCancelar.Click
-    '    canceladoPeloUsuario = True
-
-    '    Task.Run(Sub()
-    '                 If processoYtDlp IsNot Nothing AndAlso Not processoYtDlp.HasExited Then
-    '                     Try
-    '                         processoYtDlp.Kill(entireProcessTree:=True)
-    '                         processoYtDlp.WaitForExit(3000)
-    '                         processoYtDlp.Dispose()
-    '                         processoYtDlp = Nothing
-
-    '                         Dim arquivosPart = Directory.GetFiles(pastaDestino, "*.part", SearchOption.TopDirectoryOnly)
-    '                         Dim arquivosVideo = arquivosPart.Where(Function(f) f.EndsWith(".mp4.part") OrElse f.EndsWith(".webm.part")).ToList()
-    '                         Dim arquivosAudio = arquivosPart.Where(Function(f) f.EndsWith(".m4a.part") OrElse (f.EndsWith(".webm.part") AndAlso Not f.EndsWith(".mp4.part"))).ToList()
-
-    '                         ' 1. Renomear .part para o nome final
-    '                         For Each arquivo In arquivosPart
-    '                             Dim novoNome = Path.Combine(pastaDestino, Path.GetFileNameWithoutExtension(arquivo))
-    '                             Try
-    '                                 File.Move(arquivo, novoNome)
-    '                             Catch ex As Exception
-    '                                 Me.Invoke(Sub() txtLog.AppendText($"[ERRO ao renomear {Path.GetFileName(arquivo)}] {ex.Message}" & Environment.NewLine))
-    '                             End Try
-    '                         Next
-
-    '                         ' 2. Atualizar listas agora sem ".part"
-    '                         arquivosVideo = Directory.GetFiles(pastaDestino, "*.mp4", SearchOption.TopDirectoryOnly).ToList()
-    '                         arquivosAudio = Directory.GetFiles(pastaDestino, "*.m4a", SearchOption.TopDirectoryOnly).ToList()
-
-
-    '                         For Each video In arquivosVideo
-    '                             Dim nomeBase = Path.GetFileNameWithoutExtension(video).Replace(".mp4", "").Replace(".webm", "")
-    '                             Dim audio = arquivosAudio.FirstOrDefault(Function(a) Path.GetFileNameWithoutExtension(a).Contains(nomeBase))
-
-    '                             If Not String.IsNullOrEmpty(audio) Then
-    '                                 Dim outputFinal = Path.Combine(pastaDestino, nomeBase & "_merged.mp4")
-    '                                 Dim ffmpegPath = Path.Combine(Application.StartupPath, "app", "ffmpeg.exe")
-    '                                 Dim psi As New ProcessStartInfo(ffmpegPath, $"-y -i ""{video}"" -i ""{audio}"" -c copy ""{outputFinal}""") With {
-    '                                 .CreateNoWindow = True,
-    '                                 .UseShellExecute = False
-    '                             }
-
-    '                                 Using ffmpegProc As Process = Process.Start(psi)
-    '                                     ffmpegProc.WaitForExit()
-    '                                 End Using
-
-    '                                 Try
-    '                                     File.Delete(video)
-    '                                     File.Delete(audio)
-    '                                 Catch ex As Exception
-    '                                     Me.Invoke(Sub() txtLog.AppendText($"[ERRO ao excluir .part] {ex.Message}" & Environment.NewLine))
-    '                                 End Try
-
-    '                                 Me.Invoke(Sub() txtLog.AppendText($"🎬 Merge finalizado: {Path.GetFileName(outputFinal)}" & Environment.NewLine))
-    '                             End If
-    '                         Next
-
-    '                         Me.Invoke(Sub()
-    '                                       progressBarDownload.Value = 0
-    '                                       txtLog.AppendText(Environment.NewLine & "⛔ Download interrompido pelo usuário." & Environment.NewLine)
-    '                                       btCancelar.Enabled = False
-    '                                       btnExecutar.Enabled = True
-    '                                       StatusLabel.Text = "Status: Cancelado pelo usuário."
-    '                                       timerFakeProgress.Stop()
-    '                                   End Sub)
-
-    '                         If Directory.Exists(pastaDestino) AndAlso Directory.EnumerateFiles(pastaDestino).Any() Then
-    '                             Process.Start("explorer.exe", pastaDestino)
-    '                         Else
-    '                             Me.Invoke(Sub() txtLog.AppendText("⚠️ Nenhum arquivo parcial encontrado." & Environment.NewLine))
-    '                         End If
-
-    '                     Catch ex As Exception
-    '                         Me.Invoke(Sub()
-    '                                       txtLog.AppendText($"[ERRO ao parar o processo] {ex.Message}" & Environment.NewLine)
-    '                                       btCancelar.Enabled = False
-    '                                       btnExecutar.Enabled = True
-    '                                       timerFakeProgress.Stop()
-    '                                   End Sub)
-    '                     End Try
-    '                 Else
-    '                     Me.Invoke(Sub()
-    '                                   txtLog.AppendText("⚠️ Nenhum processo ativo para interromper." & Environment.NewLine)
-    '                                   btCancelar.Enabled = False
-    '                                   btnExecutar.Enabled = True
-    '                                   timerFakeProgress.Stop()
-    '                               End Sub)
-    '                 End If
-    '             End Sub)
-    'End Sub
-
     Private Sub ImportarCookiesPrivadosToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles ImportarCookiesPrivadosToolStripMenuItem.Click
+        If downloadEmAndamento Then Return
         Dim saveFileDialog As New OpenFileDialog With {
             .Filter = "Arquivo de Cookies (*.txt)|*.txt",
             .Title = "Importar cookies privados",
@@ -1515,6 +1695,7 @@ Public Class Form1
         txtUrl.Focus()
     End Sub
     Private Async Sub VerificarAtualizaçõesToolStripMenuItem_Click(sender As Object, e As EventArgs) Handles VerificarAtualizaçõesToolStripMenuItem.Click
+        If downloadEmAndamento OrElse verificacaoAtualizacaoEmAndamento Then Return
         Await VerificarAtualizacaoYTDLP()
     End Sub
     ' Minimizar para o Tray
@@ -1538,7 +1719,8 @@ Public Class Form1
             porcentagem = CInt((progressBarDownload.Value / progressBarDownload.Maximum) * 100)
         End If
 
-        NotifyIcon1.Text = $"Download: {porcentagem}% completo {vbCrLf}{StatusLabel.Text}"
+        Dim texto = $"Download: {porcentagem}% completo {vbCrLf}{StatusLabel.Text}"
+        NotifyIcon1.Text = If(texto.Length > 63, texto.Substring(0, 63), texto)
     End Sub
 
     Public Function ListViewContains(ByVal listView As ListView, ByVal linkProcurado As String) As Boolean
@@ -1552,19 +1734,51 @@ Public Class Form1
         Return False ' Link não encontrado
     End Function
 
+    Private Function LinkPareceVideo(link As String) As Boolean
+        Dim uri As Uri = Nothing
+        If Not Uri.TryCreate(link, UriKind.Absolute, uri) OrElse
+           (uri.Scheme <> Uri.UriSchemeHttp AndAlso uri.Scheme <> Uri.UriSchemeHttps) Then
+            Return False
+        End If
+
+        Dim caminho = uri.AbsolutePath.ToLowerInvariant()
+        Dim extensoesDeVideo = {".mp4", ".m4v", ".mkv", ".webm", ".mov", ".avi", ".flv", ".ts", ".m3u8", ".mpd"}
+        If extensoesDeVideo.Any(Function(extensao) caminho.EndsWith(extensao, StringComparison.OrdinalIgnoreCase)) Then
+            Return True
+        End If
+
+        ' O monitor da área de transferência deve ignorar páginas comuns e links de arquivos.
+        ' Esses domínios são usados por plataformas de vídeo reconhecidas pelo yt-dlp.
+        Dim dominiosDeVideo = {
+            "youtube.com", "youtu.be", "youtube-nocookie.com", "googlevideo.com",
+            "twitch.tv", "twitchcdn.net", "chaturbate.com", "vimeo.com", "dailymotion.com",
+            "tiktok.com", "tiktokcdn.com", "instagram.com", "facebook.com", "fb.watch",
+            "twitter.com", "x.com", "reddit.com", "redd.it", "kick.com", "rumble.com",
+            "bilibili.com", "streamable.com", "loom.com", "videopress.com", "clips.twitch.tv"
+        }
+
+        Dim host = uri.DnsSafeHost.TrimEnd("."c)
+        Return dominiosDeVideo.Any(Function(dominio) _
+            host.Equals(dominio, StringComparison.OrdinalIgnoreCase) OrElse
+            host.EndsWith("." & dominio, StringComparison.OrdinalIgnoreCase))
+    End Function
+
     Private Async Sub TimerClipboard_Tick(sender As Object, e As EventArgs) Handles TimerClipboard.Tick
+        If downloadEmAndamento Then Return
         Try
             If Clipboard.ContainsText() Then
                 Dim linkDetected As String = Clipboard.GetText().Trim()
-                'Debug.WriteLine($"Link detectado: {linkDetected}")
-                If linkDetected.StartsWith("http", StringComparison.OrdinalIgnoreCase) AndAlso linkDetected <> ultimoLinkDetectado AndAlso ListViewContains(lstLink, linkDetected) = False Then
-
+                If Not linkDetected.Equals(ultimoLinkDetectado, StringComparison.Ordinal) Then
+                    ' Memoriza qualquer mudança na área de transferência, inclusive texto sem vídeo.
+                    ' Assim, excluir o item não faz o mesmo conteúdo copiado gerar outra pergunta.
                     ultimoLinkDetectado = linkDetected
 
-                    Dim resposta = MessageBox.Show($"Link detectado na área de transferência:{Environment.NewLine}{linkDetected}{Environment.NewLine}{Environment.NewLine}Deseja adicionar à lista de downloads?", "Novo Link Detectado", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
+                    If LinkPareceVideo(linkDetected) AndAlso ListViewContains(lstLink, linkDetected) = False Then
+                        Dim resposta = MessageBox.Show($"Link detectado na área de transferência:{Environment.NewLine}{linkDetected}{Environment.NewLine}{Environment.NewLine}Deseja adicionar à lista de downloads?", "Novo Link Detectado", MessageBoxButtons.YesNo, MessageBoxIcon.Question)
 
-                    If resposta = DialogResult.Yes Then
-                        Await addLink(linkDetected)
+                        If resposta = DialogResult.Yes Then
+                            Await addLink(linkDetected)
+                        End If
                     End If
                 End If
             End If
