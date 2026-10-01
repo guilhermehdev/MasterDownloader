@@ -24,6 +24,8 @@ Public Class Form1
     Private downloadEmAndamento As Boolean = False
     Private verificacaoAtualizacaoEmAndamento As Boolean = False
     Private ultimoLinkDetectado As String = ""
+    Private ReadOnly filaExecucao As New ConcurrentQueue(Of String)()
+    Private pendingQueueAdditions As Integer = 0
     Private currentDownloadLink As String = ""
     Private linkAtualEhLive As Boolean = False
     Private encerrandoLive As Boolean = False
@@ -99,46 +101,45 @@ Public Class Form1
         End Try
     End Function
     Private Async Function addLink(ByVal link As String) As Task
-        If downloadEmAndamento OrElse verificacaoAtualizacaoEmAndamento Then Return
-
-        If link <> "" Then
-            Directory.CreateDirectory(Path.GetDirectoryName(downloadFilePath))
-            If Not File.Exists(downloadFilePath) Then File.WriteAllText(downloadFilePath, String.Empty)
-            ' If Not IsCanal(link) Then
-            StatusLabel.Text = "Status: Adicionando link..."
-            Application.DoEvents()
-            btnExecutar.Enabled = False
-            Me.Cursor = Cursors.WaitCursor
-            File.AppendAllText(downloadFilePath, link & Environment.NewLine)
-            'Else
-            ' AdicionarTituloNaListView(link)
-            'File.AppendAllText(downloadFilePath, link & Environment.NewLine)
+        If verificacaoAtualizacaoEmAndamento OrElse String.IsNullOrWhiteSpace(link) Then Return
+        If ListViewContains(lstLink, link) Then
             txtUrl.Clear()
-            '    Return
-            'End If
-
-            ' txtUrl.Clear()
-
-        End If
-        Dim links = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).ToList()
-        If links.Count = 0 Then
-            txtLog.AppendText("⚠️ Nenhum link encontrado no arquivo." & Environment.NewLine)
-            btnExecutar.Enabled = True
             Return
         End If
 
+        Dim adicionarDuranteExecucao = downloadEmAndamento
+        If adicionarDuranteExecucao Then pendingQueueAdditions += 1
+        btnAdicionar.Enabled = False
+        btnExecutar.Enabled = False
+        Me.Cursor = Cursors.WaitCursor
+        If Not adicionarDuranteExecucao Then StatusLabel.Text = "Status: Adicionando link..."
+
         Try
+            Directory.CreateDirectory(Path.GetDirectoryName(downloadFilePath))
+            If Not File.Exists(downloadFilePath) Then File.WriteAllText(downloadFilePath, String.Empty)
+            File.AppendAllText(downloadFilePath, link & Environment.NewLine)
+            txtUrl.Clear()
+
             Dim videoData = Await ContarVideosNaPlaylist(link)
             AdicionarTituloNaListView(UnescapeUnicode(videoData.Item2), link)
-            ' lstLink.Items.Add(videoData.Item2)
             txtLog.AppendText($"📺 Link contém {videoData.Item1} vídeos." & Environment.NewLine)
-            StatusLabel.Text = $"Status: {videoData.Item1} vídeos encontrados"
-            btnExecutar.Enabled = True
+
+            If adicionarDuranteExecucao AndAlso downloadEmAndamento AndAlso Not canceladoPeloUsuario Then
+                filaExecucao.Enqueue(link)
+                totalLinksNaFila += 1
+            ElseIf Not downloadEmAndamento Then
+                StatusLabel.Text = $"Status: {videoData.Item1} vídeos encontrados"
+            End If
         Catch ex As Exception
-            StatusLabel.Text = "Status: Nenhum video encontrado."
+            If Not downloadEmAndamento Then StatusLabel.Text = "Status: Nenhum video encontrado."
             txtLog.AppendText("❌ Falha ao contar vídeos: " & ex.Message & Environment.NewLine)
+        Finally
+            If adicionarDuranteExecucao Then pendingQueueAdditions -= 1
+            Me.Cursor = Cursors.Default
+            btnAdicionar.Enabled = Not verificacaoAtualizacaoEmAndamento
+            btnExecutar.Enabled = Not downloadEmAndamento
+            If downloadEmAndamento AndAlso liveCapturas.Count > 0 Then AtualizarStatusCapturasLives()
         End Try
-        Me.Cursor = Cursors.Default
     End Function
     Private Async Sub BtnAdicionar_Click(sender As Object, e As EventArgs) Handles btnAdicionar.Click
         Await addLink(txtUrl.Text.Trim())
@@ -851,6 +852,13 @@ Public Class Form1
         If File.Exists(downloadFilePath) Then
             linksList = File.ReadAllLines(downloadFilePath).Where(Function(l) Not String.IsNullOrWhiteSpace(l)).Distinct(StringComparer.OrdinalIgnoreCase).ToList()
         End If
+        Dim linkDescartado As String = Nothing
+        While filaExecucao.TryDequeue(linkDescartado)
+        End While
+        For Each linkInicial In linksList
+            filaExecucao.Enqueue(linkInicial)
+        Next
+        pendingQueueAdditions = 0
 
         If linksList.Count = 0 And lstLink.Items.Count = 0 Then
             MessageBox.Show("Nenhum link válido encontrado.")
@@ -879,11 +887,24 @@ Public Class Form1
 
         Try
             downloadEmAndamento = True
-            btnAdicionar.Enabled = False
+            btnAdicionar.Enabled = Not verificacaoAtualizacaoEmAndamento
             btLimparLista.Enabled = False
             TimerClipboard.Stop()
-            For Each link In linksList
-                If canceladoPeloUsuario Then Exit For
+            While True
+                If canceladoPeloUsuario Then Exit While
+                Dim link As String = Nothing
+                If Not filaExecucao.TryDequeue(link) Then
+                    Dim tarefasLivesAtivas = liveCapturas.Values.Select(Function(jobState) jobState.Task).Where(Function(tarefa) tarefa IsNot Nothing).ToArray()
+                    If tarefasLivesAtivas.Length > 0 Then
+                        Await Task.WhenAny(Task.WhenAny(tarefasLivesAtivas), Task.Delay(250))
+                        Continue While
+                    ElseIf pendingQueueAdditions > 0 Then
+                        Await Task.Delay(200)
+                        Continue While
+                    Else
+                        Exit While
+                    End If
+                End If
                 currentDownloadLink = link
                 linkAtualEhLive = False
                 liveArquivoEmGravacao = ""
@@ -895,10 +916,10 @@ Public Class Form1
                     Try
                         metadados = Await ObterMetadadosLinkAsync(link)
                     Catch ex As Exception
-                        If canceladoPeloUsuario Then Exit For
+                        If canceladoPeloUsuario Then Exit While
                         txtLog.AppendText($"[ERRO ao consultar o link] {ex.Message}{Environment.NewLine}")
                         successOverall = False
-                        Continue For
+                        Continue While
                     End Try
                 End If
                 Dim linkEhLive = metadados IsNot Nothing AndAlso MetadadosIndicamLive(metadados)
@@ -908,14 +929,14 @@ Public Class Form1
                 If Not linkEhLive AndAlso liveCapturas.Count > 0 Then
                     Dim tarefasAtivas = liveCapturas.Values.Select(Function(jobState) jobState.Task).Where(Function(tarefa) tarefa IsNot Nothing).ToArray()
                     If tarefasAtivas.Length > 0 Then Await Task.WhenAll(tarefasAtivas)
-                    If canceladoPeloUsuario Then Exit For
+                    If canceladoPeloUsuario Then Exit While
                 End If
 
                 progressBarDownload.Value = 0
                 If linkEhPlaylist Then
                     AtualizarStatus("Status: Baixando playlist...")
                 Else
-                    AtualizarStatus($"Status: Baixando {linksConcluidos} de {linksList.Count}...")
+                    AtualizarStatus($"Status: Baixando {linksConcluidos} de {totalLinksNaFila}...")
                 End If
                 Dim args As New StringBuilder()
                 ' Definindo argumentos base para yt-dlp
@@ -936,7 +957,7 @@ Public Class Form1
                     Else
                         successOverall = False
                     End If
-                    Continue For ' Próximo link
+                    Continue While ' Próximo link
                 End If
 
                 If linkEhLive Then
@@ -949,7 +970,7 @@ Public Class Form1
                         If tarefasAtivas.Length = 0 Then Exit While
                         Await Task.WhenAny(tarefasAtivas)
                     End While
-                    If canceladoPeloUsuario Then Exit For
+                    If canceladoPeloUsuario Then Exit While
 
                     Dim captura As New LiveCaptureJob With {.Link = linkOriginal}
                     liveCapturas(linkOriginal) = captura
@@ -960,7 +981,7 @@ Public Class Form1
                     CheckBoxAudio.Enabled = False
                     AtualizarStatus($"Status: Gravando {liveCapturas.Count} de 2 lives...")
                     captura.Task = ExecutarCapturaLiveAsync(captura, args.ToString())
-                    Continue For ' Próximo link
+                    Continue While ' Próximo link
                 End If
 
                 ' Lógica para Playlists e Vídeos/Áudio individuais
@@ -984,7 +1005,7 @@ Public Class Form1
                 ' Lógica de Legendas
                 If chkLegendas.Checked AndAlso Not CheckBoxAudio.Checked Then ' Legendas só fazem sentido para vídeo
                     Await CarregarLegendasDisponiveis(link)
-                    If canceladoPeloUsuario Then Exit For
+                    If canceladoPeloUsuario Then Exit While
                     Dim resultado As DialogResult = FormLegendas.ShowDialog()
                     If resultado = DialogResult.OK AndAlso Not String.IsNullOrEmpty(FormLegendas.args) Then
                         args.Append(" " & FormLegendas.args & " ")
@@ -992,14 +1013,14 @@ Public Class Form1
                 End If
 
                 ' Agora executamos o processo para o link atual
-                If canceladoPeloUsuario Then Exit For ' Verifica cancelamento antes de executar
+                If canceladoPeloUsuario Then Exit While ' Verifica cancelamento antes de executar
                 If Await ExecutarProcessoAsync(txtLog, progressBarDownload, args.ToString()) Then
                     MarcarItemComoOK(linkOriginal)
                     linksConcluidos += 1
                 Else
                     successOverall = False
                 End If
-            Next
+            End While
 
             Dim tarefasLives = liveCaptureJobs.Select(Function(captura) captura.Task).Where(Function(tarefa) tarefa IsNot Nothing).ToArray()
             If tarefasLives.Length > 0 Then Await Task.WhenAll(tarefasLives)
