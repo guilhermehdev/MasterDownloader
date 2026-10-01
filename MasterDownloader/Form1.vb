@@ -121,6 +121,10 @@ Public Class Form1
             txtUrl.Clear()
 
             Dim videoData = Await ContarVideosNaPlaylist(link)
+            If LinkPareceLive(link) AndAlso TituloIndicaFalha(videoData.Item2) Then
+                RemoverLiveIndisponivel(link)
+                Return
+            End If
             AdicionarTituloNaListView(UnescapeUnicode(videoData.Item2), link)
             txtLog.AppendText($"📺 Link contém {videoData.Item1} vídeos." & Environment.NewLine)
 
@@ -178,7 +182,7 @@ Public Class Form1
     Private Sub AtualizarStatusCapturasLives()
         Dim quantidade = liveCapturas.Count
         If quantidade > 0 Then
-            AtualizarStatus($"Status: Gravando {quantidade} de 2 lives...")
+            AtualizarStatus("Status: Gravando...")
         ElseIf downloadEmAndamento AndAlso Not canceladoPeloUsuario Then
             AtualizarStatus("Status: Finalizando capturas de live...")
         End If
@@ -208,8 +212,6 @@ Public Class Form1
         Try
             Dim caminho As String = downloadFilePath
 
-            MsgBox($"Removendo link: {linkParaRemover}", MsgBoxStyle.Information, "Remover Link")
-
             If File.Exists(caminho) Then
                 ' Lê todas as linhas
                 Dim linhas = File.ReadAllLines(caminho).ToList()
@@ -226,6 +228,55 @@ Public Class Form1
         Catch ex As Exception
             txtLog.AppendText($"[ERRO ao remover link do arquivo] {ex.Message}" & Environment.NewLine)
         End Try
+    End Sub
+
+    Private Function LinkPareceLive(link As String) As Boolean
+        Dim uri As Uri = Nothing
+        If Not Uri.TryCreate(link, UriKind.Absolute, uri) Then Return False
+
+        Dim host = uri.DnsSafeHost.TrimEnd("."c).ToLowerInvariant()
+        Dim caminho = uri.AbsolutePath.Trim("/"c)
+        Dim partes = caminho.Split("/"c, StringSplitOptions.RemoveEmptyEntries)
+
+        If host = "chaturbate.com" OrElse host.EndsWith(".chaturbate.com", StringComparison.Ordinal) Then Return partes.Length > 0
+        If host = "twitch.tv" OrElse host.EndsWith(".twitch.tv", StringComparison.Ordinal) Then
+            Return partes.Length > 0 AndAlso Not {"videos", "clip", "clips", "directory", "downloads"}.Contains(partes(0).ToLowerInvariant())
+        End If
+        If host = "kick.com" OrElse host.EndsWith(".kick.com", StringComparison.Ordinal) Then
+            Return partes.Length > 0 AndAlso Not {"video", "videos", "categories"}.Contains(partes(0).ToLowerInvariant())
+        End If
+        If host = "youtube.com" OrElse host = "www.youtube.com" OrElse host.EndsWith(".youtube.com", StringComparison.Ordinal) Then
+            Return partes.Length > 0 AndAlso partes(0).Equals("live", StringComparison.OrdinalIgnoreCase)
+        End If
+        Return False
+    End Function
+
+    Private Function TituloIndicaFalha(titulo As String) As Boolean
+        Return String.IsNullOrWhiteSpace(titulo) OrElse
+               titulo.IndexOf("Título desconhecido", StringComparison.OrdinalIgnoreCase) >= 0 OrElse
+               titulo.IndexOf("[ERRO]", StringComparison.OrdinalIgnoreCase) >= 0
+    End Function
+
+    Private Sub RemoverLiveIndisponivel(link As String)
+        RemoverLinkEspecificoDoArquivo(link)
+        For indice = lstLink.Items.Count - 1 To 0 Step -1
+            Dim item = lstLink.Items(indice)
+            If item.Tag IsNot Nothing AndAlso item.Tag.ToString().Equals(link, StringComparison.OrdinalIgnoreCase) Then
+                lstLink.Items.RemoveAt(indice)
+            End If
+        Next
+
+        Dim filaMantida As New List(Of String)()
+        Dim linkNaFila As String = Nothing
+        While filaExecucao.TryDequeue(linkNaFila)
+            If Not linkNaFila.Equals(link, StringComparison.OrdinalIgnoreCase) Then filaMantida.Add(linkNaFila)
+        End While
+        For Each linkMantido In filaMantida
+            filaExecucao.Enqueue(linkMantido)
+        Next
+
+        txtLog.AppendText($"[AVISO] A live não está mais disponível ou já foi encerrada. Link removido: {link}{Environment.NewLine}")
+        MessageBox.Show("Esta live não está mais disponível ou já foi encerrada. O link foi removido da lista.", "Live indisponível", MessageBoxButtons.OK, MessageBoxIcon.Information)
     End Sub
     Private Function IsCanal(link As String) As Boolean
         Return link.Contains("youtube.com/@") OrElse link.Contains("youtube.com/c/") OrElse link.Contains("channel/")
@@ -739,6 +790,10 @@ Public Class Form1
 
             For Each link In links
                 Dim videoData = Await ContarVideosNaPlaylist(link)
+                If LinkPareceLive(link) AndAlso TituloIndicaFalha(videoData.Item2) Then
+                    RemoverLiveIndisponivel(link)
+                    Continue For
+                End If
                 AdicionarTituloNaListView(UnescapeUnicode(videoData.Item2), link)
                 TimerClipboard.Stop()
             Next
@@ -917,6 +972,11 @@ Public Class Form1
                         metadados = Await ObterMetadadosLinkAsync(link)
                     Catch ex As Exception
                         If canceladoPeloUsuario Then Exit While
+                        If LinkPareceLive(link) Then
+                            RemoverLiveIndisponivel(link)
+                            successOverall = False
+                            Continue While
+                        End If
                         txtLog.AppendText($"[ERRO ao consultar o link] {ex.Message}{Environment.NewLine}")
                         successOverall = False
                         Continue While
@@ -964,7 +1024,9 @@ Public Class Form1
                     args.Clear()
                     args.Append($"--output ""{pastaDestino}\%(title)s [%(id)s].%(ext)s"" ""{link}"" ")
                     args.Append($"--cookies ""{cookiesFilePath}"" --no-warnings --progress --newline --no-mtime ")
-                    args.Append("--format best/bestvideo+bestaudio/bestvideo --downloader ffmpeg --buffer-size 1M --hls-use-mpegts --no-part ")
+                    ' Use o downloader HLS nativo do yt-dlp: o downloader externo do FFmpeg pode perder
+                    ' segmentos enquanto acompanha playlists HLS ao vivo, causando saltos/travamentos.
+                    args.Append("--format best/bestvideo+bestaudio/bestvideo --buffer-size 1M --fragment-retries 20 --retry-sleep fragment:exp=1:30 --hls-use-mpegts --no-part ")
                     While liveCapturas.Count >= 2 AndAlso Not canceladoPeloUsuario
                         Dim tarefasAtivas = liveCapturas.Values.Select(Function(jobState) jobState.Task).Where(Function(tarefa) tarefa IsNot Nothing).ToArray()
                         If tarefasAtivas.Length = 0 Then Exit While
@@ -979,7 +1041,7 @@ Public Class Form1
                     Me.Cursor = Cursors.Default
                     chkLegendas.Enabled = False
                     CheckBoxAudio.Enabled = False
-                    AtualizarStatus($"Status: Gravando {liveCapturas.Count} de 2 lives...")
+                    AtualizarStatus("Status: Gravando...")
                     captura.Task = ExecutarCapturaLiveAsync(captura, args.ToString())
                     Continue While ' Próximo link
                 End If

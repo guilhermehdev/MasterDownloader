@@ -7,6 +7,12 @@
     <UseWindowsForms>true</UseWindowsForms>
     <MyType>WindowsForms</MyType>
     <ApplicationIcon>Downloads_29996.ico</ApplicationIcon>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <PublishReadyToRun>true</PublishReadyToRun>
   </PropertyGroup>
 
   <ItemGroup>
@@ -67,5 +73,14 @@
       <LastGenOutput>Settings.Designer.vb</LastGenOutput>
     </None>
   </ItemGroup>
+
+  <Target Name="CopyExternalToolsToPublish" AfterTargets="Publish">
+    <ItemGroup>
+      <_ExternalToolFile Include="$(MSBuildProjectDirectory)\app\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_ExternalToolFile)"
+          DestinationFiles="@(_ExternalToolFile->'$(PublishDir)app\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+  </Target>
 
 </Project>
